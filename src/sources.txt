@@ -1,0 +1,208 @@
+# Everything both builds compile, read by:
+#
+#   Makefile                        $(call section,name)
+#   desktop/CMakeLists.txt          pocketfin_section()
+#   tools/register_gen.py           [tests] -> build/gen/register.c
+#
+# [section] headers, one path per line, # comments, blanks ignored. Order is
+# kept: the checks RUN in the order [tests] lists them, and they share global
+# state, so that order is not link order and is not arbitrary.
+#
+# The sections above [generated] are the layers, bottom up. A layer may
+# include only from layers above it in this file.
+
+
+[base]
+src/base/log.c
+src/base/worker.c
+src/base/prefs.c
+src/base/standby.c
+src/base/json.c
+src/base/rect.c
+src/base/corners.c
+src/base/blit.c
+src/base/jpeg_header.c
+
+
+# Bounded transports.
+[io]
+src/io/link.c
+src/io/net.c
+src/io/http.c
+
+
+# The server, as data. Every call here blocks.
+[jelly]
+src/jelly/query.c
+src/jelly/api.c
+src/jelly/image.c
+src/jelly/segments.c
+
+
+# What the application holds: asked on the drawing thread, answered on a
+# worker.
+[model]
+src/model/session.c
+src/model/catalog.c
+src/model/reports.c
+src/model/posters.c
+src/model/fmp4.c
+src/model/play_clock.c
+src/model/stream.c
+
+
+# The toolkit. Takes a rectangle; owns no application state.
+[view]
+src/view/theme.c
+src/view/style.c
+src/view/layout.c
+src/view/frame.c
+src/view/scroll.c
+src/view/element_text.c
+src/view/element_hint.c
+src/view/element_bar.c
+src/view/element_option.c
+src/view/element_notice.c
+src/view/element_media.c
+src/view/element_player.c
+src/view/page_chrome.c
+src/view/stack.c
+
+
+
+
+# The screens. lab.c and pages.c are NOT screens and live in [tools].
+[page]
+src/page/item_text.c
+src/page/open.c
+src/page/settings.c
+src/page/boot.c
+src/page/offline.c
+src/page/listing.c
+src/page/detail.c
+src/page/home.c
+src/page/network.c
+src/page/player.c
+
+
+# The spine: start-up order, the frame pipeline, the navigation graph. ABOVE
+# the screens, because it is what names them.
+[app]
+src/app/app.c
+
+
+# The harness, not the client. Only shell/ and tools/ may include it
+# (tools/layers.sh).
+[tools]
+src/tools/remote.c
+src/tools/drive.c
+src/tools/speed.c
+src/tools/shot.c
+src/tools/lab.c
+src/tools/pages.c
+src/tools/selftest.c
+
+
+# Baked from assets/font.bin by tools/font_bake.py.
+[generated]
+build/gen/font_data.c
+build/gen/font_atlas.c
+
+
+# The checks, in the order they run. The filename is the contract:
+# tests/base/test_json.c must define test_json_register(void).
+[tests]
+tests/port/test_platform.c
+tests/base/test_log.c
+tests/base/test_prefs.c
+tests/tools/test_remote.c
+tests/tools/test_pages.c
+tests/base/test_standby.c
+tests/port/test_media.c
+tests/port/test_gfx.c
+tests/port/test_text.c
+tests/io/test_http.c
+tests/base/test_json.c
+tests/base/test_jpeg_header.c
+tests/port/test_jpeg.c
+tests/model/test_posters.c
+tests/model/test_poster_cache.c
+tests/view/test_element.c
+tests/view/test_layout.c
+tests/page/test_item_row.c
+tests/page/test_settings_page.c
+tests/page/test_boot_page.c
+tests/view/test_scroll.c
+tests/page/test_listing_page.c
+tests/page/test_detail_page.c
+tests/page/test_player_page.c
+tests/page/test_home_page.c
+tests/page/test_visible_art.c
+tests/jelly/test_item_sort.c
+tests/jelly/test_conn.c
+tests/jelly/test_jellyfin_query.c
+tests/jelly/test_segments.c
+tests/model/test_session.c
+tests/model/test_catalog.c
+tests/model/test_report.c
+tests/model/test_play_clock.c
+tests/model/test_fmp4.c
+tests/model/test_chain.c
+tests/port/test_decode.c
+tests/port/test_compose.c
+tests/port/test_audio.c
+
+# LAST, and it has to be. Claiming the playback budget is 9,600 kB of a 24 MB
+# partition, and leaves it arranged differently afterwards (port/mem.h). Run
+# in the middle it starved every later check on the console: the card artwork
+# could not be placed and a scrim over it read as solid black.
+tests/port/test_mem.c
+
+# AND LAST OF ALL: films from the real server, over the real radio. They need
+# the playback budget, so they cannot run before the block above.
+tests/model/test_stream.c
+tests/jelly/test_link.c
+
+
+[psp]
+src/port/psp/gfx.c
+src/port/psp/avmod.c
+src/port/psp/decode.c
+src/port/psp/audio.c
+src/port/psp/net.c
+src/port/psp/jpeg.c
+src/port/psp/input.c
+src/port/psp/text.c
+src/port/psp/media.c
+src/port/psp/mem.c
+src/port/psp/platform.c
+src/port/psp/audio_decoder.c
+src/port/psp/video_decoder.c
+src/port/psp/sceMpegNal.S
+src/shell/psp/main.c
+
+
+# The desktop, shared by both of its binaries.
+[desktop]
+src/port/desktop/text.c
+src/port/desktop/jpeg.c
+src/port/desktop/net.c
+src/port/desktop/gfx.c
+src/port/desktop/decode.c
+src/port/desktop/audio.c
+src/port/desktop/input.c
+src/port/desktop/media.c
+src/port/desktop/mem.c
+src/port/desktop/platform.c
+
+
+# pocketfin-pc: the app in a window. Built WITHOUT POCKETFIN_CHECKS, which is
+# the only thing that compiles the core with its test seams absent.
+[desktop-app]
+src/port/desktop/window.c
+src/shell/desktop/main.c
+
+
+# pocketfin-test: the check runner, over the same core.
+[desktop-test]
+src/shell/desktop/checks.c

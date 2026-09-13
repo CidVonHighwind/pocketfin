@@ -1,0 +1,17 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "desktop",
+      "//": "IntelliSense follows the desktop build. Pointing it at the PSP build instead would mean a MIPS cross-compiler it cannot run and headers it cannot find, which is a screenful of squiggles nobody can act on -- and the portable layers are the same code either way.",
+      "//db": "No compile_commands.json here on purpose: CMake only writes one for the Makefile and Ninja generators, and this project uses the Visual Studio generator so that a plain 'cmake --build' works from any shell without a developer prompt. The two roots below are the whole of what the portable layers need.",
+      "includePath": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/tests"
+      ],
+      "defines": ["_CRT_SECURE_NO_WARNINGS"],
+      "cStandard": "c99",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ]
+}

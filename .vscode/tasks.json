@@ -1,0 +1,178 @@
+{
+  "version": "2.0.0",
+  "//": "Everything except the device tasks runs natively. The PSP toolchain lives in WSL and scripts/psp.sh shells out to it.",
+  "tasks": [
+    {
+      "label": "configure",
+      "//": "Nearly free once the cache exists.",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S",
+        "src/shell/desktop",
+        "-B",
+        "build/desktop"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "build (pc app)",
+      "//": "What F5 depends on: the application in a window.",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build/desktop",
+        "--config",
+        "Debug",
+        "--target",
+        "pocketfin-pc"
+      ],
+      "dependsOn": "configure",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "build (checks)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "build/desktop",
+        "--config",
+        "Debug",
+        "--target",
+        "pocketfin-test"
+      ],
+      "dependsOn": "configure",
+      "problemMatcher": "$msCompile",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "build (psp)",
+      "//": "The console release: build/dist/PSP/GAME/pocketfin (EBOOT.PBP and a jellyfin.txt to fill in) to copy to the root of the Memory Stick, and build/dist/pocketfin-<version>.zip, the same folder ready to publish. Needs the PSP toolchain in WSL, nothing else.",
+      "type": "process",
+      "command": "wsl",
+      "args": [
+        "-d",
+        "Ubuntu",
+        "--",
+        "bash",
+        "-lc",
+        "cd /root/jfpsp && export PATH=/usr/local/pspdev/bin:$PATH PSPDEV=/usr/local/pspdev && make BUILD_PRX=1 dist"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "checks",
+      "//": "Build and run the portable suite. The one to reach for after any change to the portable layers.",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/desktop/Debug/pocketfin-test.exe",
+      "dependsOn": "build (checks)",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "checks (one group)",
+      "//": "The same, filtered. No debugger, so it is the quick one while working on a single group.",
+      "type": "shell",
+      "command": "${workspaceFolder}/build/desktop/Debug/pocketfin-test.exe",
+      "args": [
+        "${input:group}"
+      ],
+      "dependsOn": "build (checks)",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "device checks",
+      "//": "Build, load and run the whole suite on the PSP -- the walks included -- then report. Refuses to start if the console is not answering.",
+      "type": "process",
+      "command": "C:/Program Files/Git/bin/bash.exe",
+      "args": [
+        "scripts/psp.sh",
+        "run"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "device app",
+      "//": "Loads the application on the console and leaves it running, so the screen can be watched over the cable.",
+      "type": "process",
+      "command": "C:/Program Files/Git/bin/bash.exe",
+      "args": [
+        "scripts/psp.sh",
+        "app"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "device stop",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "scripts/psp.sh",
+        "stop"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "group",
+      "type": "promptString",
+      "description": "Group prefix (audio boot catalog chain clock clock_film compose conn decode detail element fmp4 frame gfx home_page http item_row item_sort jfquery jpeg jpeg_header json layout link listing log media mem offline pages platform player_page poster-cache posters prefs remote report screen scroll segments session settings standby start stream text visible_art)",
+      "default": "json"
+    }
+  ]
+}

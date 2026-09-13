@@ -1,0 +1,20 @@
+# Files that still carry a POCKETFIN_CHECKS branch, each with the change that
+# removes it. tools/layers.sh fails on anything NOT listed here, so a new
+# seam is refused the moment it is written.
+#
+# EMPTY THIS FILE. Do not add to it.
+
+# The library's fakes -- library_fake_fill/rail/items/busy/total/clear. Every
+# screen check in the tree fills its catalogue through them, and a real server
+# cannot be asked to refuse a connection and then come back, so the states the
+# boot and offline screens exist for are only reachable from here.
+# Cleared when catalog takes a `catalog_source`, and the fake becomes the
+# second implementation, in tests/fake_catalog.c.
+src/model/catalog.h
+src/model/catalog.c
+
+# The connection's half of the same thing: session_fake_stage/lost/ready.
+# Splitting catalog.c (stage 6) moved these without changing their shape.
+# They go with the catalog source, behind the same interface.
+src/model/session.h
+src/model/session.c

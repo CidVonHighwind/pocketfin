@@ -1,0 +1,62 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pocketfin (window)",
+      "//": "F5. Breakpoints anywhere in the portable layers work, which is what the platform split is for. Arrows are the d-pad; W A S D are the face buttons where they sit on the console -- W triangle, A square, S cross, D circle; Enter START, Shift SELECT, Esc quits.",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/desktop/Debug/pocketfin-pc.exe",
+      "args": [],
+      "//cwd": "The repository root: jellyfin.txt, run/ and the poster pack are all relative to it.",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build (pc app)",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Pocketfin (window, console link speed)",
+      "//": "The same app with the network pretending to be 8x slower than the console's 2.8 Mbit/s, and 8x its 80 ms of server think time. This machine fetches a poster faster than it draws a frame, so at full speed a page that pulls its whole folder and one that pulls the six rows on screen look identical. Change the number to taste; 1 is the console itself.",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/desktop/Debug/pocketfin-pc.exe",
+      "args": ["--slow", "8"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build (pc app)",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Pocketfin checks",
+      "//": "The portable suite. It drives the real screens and leaves a capture of each in run/pocketfin-link/.",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/desktop/Debug/pocketfin-test.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build (checks)",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Pocketfin checks (one group)",
+      "//": "Asks for a group and runs only that one. The argument is a PREFIX, so `pos` takes posters and poster-cache. A prefix that matches nothing runs nothing and says so -- read the count, not the absence of failures.",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/desktop/Debug/pocketfin-test.exe",
+      "args": ["${input:group}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "build (checks)",
+      "stopAtEntry": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "group",
+      "type": "promptString",
+      "description": "Group prefix (audio boot catalog chain clock clock_film compose conn decode detail element fmp4 frame gfx home_page http item_row item_sort jfquery jpeg jpeg_header json layout link listing log media mem offline pages platform player_page poster-cache posters prefs remote report screen scroll segments session settings standby start stream text visible_art)",
+      "default": "json"
+    }
+  ]
+}

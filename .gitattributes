@@ -1,0 +1,11 @@
+# LF everywhere, on every machine: the sources are edited on Windows and built
+# under WSL, where a shell script with CRLF endings does not run at all.
+* text=auto eol=lf
+
+# Binaries git must not touch.
+*.png  binary
+*.bin  binary
+*.ttf  binary
+*.prx  binary
+*.elf  binary
+*.exe  binary

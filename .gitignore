@@ -1,0 +1,71 @@
+# ORDER MATTERS: the last matching line wins, so every negation sits under the
+# pattern it carves out of.
+
+# Build output.
+build/
+dist/
+__pycache__/
+*.o
+*.d
+*.elf
+*.prx
+EBOOT.PBP
+*.SFO
+
+# EVERYTHING either machine writes at run time. host0: on the console is this
+# directory, so the console's log, the channel's files, captures and anything
+# pulled off the card all land in it -- and never in the checkout.
+run/
+pocketfin-*.dat
+*.log
+*.ppm
+*.png
+*.txt
+# A build file, not a text file. *.txt swallowed it and the desktop half of
+# the build was not in the repo at all.
+!CMakeLists.txt
+# THE file list -- what both builds compile. *.txt would have swallowed it
+# exactly as it swallowed CMakeLists.txt, and a fresh clone would have had a
+# Makefile that named nothing.
+!/src/sources.txt
+# The EBOOT's icon, which *.png would swallow the same way.
+!/assets/ICON0.PNG
+!/resources/*.png
+
+# The server's address and credentials.
+jellyfin.txt
+
+# Local media: test clips, and anything recorded off the device.
+*.mp4
+*.MP4
+
+# A backstop, because the reason this list exists is that readings kept being
+# committed by accident. Nothing here is source -- .bin is a memory dump
+# somebody took. The font blob is the SOURCE form of the font data, so it is
+# the exception.
+*.bin
+!assets/font.bin
+
+# tools/ is prebuilt third-party binaries and one-machine scripting, 13 MB of
+# it. The font baker is the exception: both builds run it at parse time, so a
+# checkout without it does not compile.
+/tools/*
+!/tools/font_bake.py
+!/tools/font_pack.py
+# The check registry's generator, for the same reason as the font baker: both
+# builds run it at parse time and a checkout without it does not compile.
+!/tools/register_gen.py
+# What draws assets/ICON0.PNG, which the EBOOT is packed with. Not run by the build,
+# but it is the only record of how the icon is made.
+!/tools/icon.py
+# And its live editor, which rewrites the PARAMS block above it.
+!/tools/icon_lab.py
+
+# The console's own configuration, which is not a binary and not scratch:
+# resetonexit=0 is the difference between a valid sleep test and an invalid
+# one, and it was untracked for as long as tools/ was ignored wholesale.
+!/tools/psplink.ini
+
+# An AI coding agent's working instructions and settings: local, not part of the project.
+CLAUDE.md
+.claude/

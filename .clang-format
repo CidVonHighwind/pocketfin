@@ -1,0 +1,36 @@
+# The project's actual style, written down so an editor's default does not
+# reformat a file the moment it is opened -- that is what turned demo_pages.c
+# into Allman braces.
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++03
+
+ColumnLimit: 140
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+BreakBeforeBraces: Attach
+PointerAlignment: Right
+DerivePointerAlignment: false
+
+# `if (!fn || !name) return;` and one-line switch arms are used throughout.
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
+
+# A block of #defines that are a numbered set reads as a table or not at all.
+AlignConsecutiveMacros: Consecutive
+
+# The declaration blocks at the top of every function line their names up.
+AlignConsecutiveDeclarations: Consecutive
+AlignConsecutiveAssignments: Consecutive
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+
+SpaceAfterCStyleCast: false
+SortIncludes: false
+IndentCaseLabels: false
+ReflowComments: false

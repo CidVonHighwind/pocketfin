@@ -1,0 +1,21 @@
+{
+  "//": "pspsdk's build.mak compiles each .c to a .o beside it -- there is no separate build directory. Hidden here rather than fought with.",
+  "files.exclude": {
+    "**/*.o": true,
+    "**/*.d": true,
+    "**/*.elf": true,
+    "**/*.prx": true,
+    "**/*.SFO": true,
+    "**/PARAM.SFO": true
+  },
+  "search.exclude": {
+    "**/*.o": true,
+    "**/dist": true,
+    "//": "build/ now holds a whole checkout of SDL2 and stb, fetched by CMake. Searching for anything in this project otherwise returns their sources first.",
+    "build/**": true
+  },
+  "files.associations": {
+    "*.h": "c"
+  },
+  "cmake.sourceDirectory": "C:/Users/Patrick/Desktop/jellyfin psp/src/shell/desktop"
+}
