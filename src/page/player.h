@@ -32,8 +32,8 @@ extern const screen_def player_page_screen;
 
 /* The item is copied: its listing may be replaced while a film runs. With
  * `has_prev`/`has_next` zero those controls register no box, so the cursor
- * steps over them. */
-void player_page_show(const item *it, unsigned long long start_ticks, int has_prev, int has_next);
+ * steps over them. `audio` and `sub` are jf_hls_open()'s. */
+void player_page_show(const item *it, unsigned long long start_ticks, int has_prev, int has_next, int audio, int sub);
 
 /* These outlive the page, for the resumed() hook of the screen underneath. */
 int                player_page_result(void);

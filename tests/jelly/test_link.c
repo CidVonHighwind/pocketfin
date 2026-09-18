@@ -192,7 +192,7 @@ static int t_every_stage_has_its_number(char *note, unsigned n) {
         /* Never at zero: the logo and titles are near-black and transcode to
            a fraction of the cap, so measuring there says the link is four
            times slower than it is. */
-        jf_err e = jf_hls_open(&g_rb, id, BENCH_AT, BENCH_KBPS * 1000u, &h, g_session, sizeof(g_session));
+        jf_err e = jf_hls_open(&g_rb, id, BENCH_AT, BENCH_KBPS * 1000u, -1, -1, &h, g_session, sizeof(g_session));
 
         if (e != JF_OK || seg_open(&g, &h, run_ticks, stage, mem_size(MEM_SEG_STAGE)) != 0) {
             snprintf(note, n, "\"%s\" would not open: %s", what, jf_err_text(e));
@@ -325,7 +325,7 @@ static int t_a_film_far_in_starts_in_seconds(char *note, unsigned n) {
         return -1;
     }
     stage = (unsigned char *)mem_reserve(MEM_SEG_STAGE);
-    e     = jf_hls_open(&g_rb, id, START_FAR_AT, (unsigned)pref(PREF_BITRATE_KBPS) * 1000u, &h, g_session, sizeof(g_session));
+    e     = jf_hls_open(&g_rb, id, START_FAR_AT, (unsigned)pref(PREF_BITRATE_KBPS) * 1000u, -1, -1, &h, g_session, sizeof(g_session));
     if (!stage || e != JF_OK || seg_open(&g, &h, run_ticks, stage, mem_size(MEM_SEG_STAGE)) != 0) {
         snprintf(note, n, "\"%s\" would not open: %s", what, jf_err_text(e));
         link_down();
@@ -391,7 +391,7 @@ static int t_the_link_is_faster_at_333(char *note, unsigned n) {
         return -1;
     }
     stage = (unsigned char *)mem_reserve(MEM_SEG_STAGE);
-    if (!stage || jf_hls_open(&g_rb, id, BENCH_AT, BENCH_KBPS * 1000u, &h, g_session, sizeof(g_session)) != JF_OK ||
+    if (!stage || jf_hls_open(&g_rb, id, BENCH_AT, BENCH_KBPS * 1000u, -1, -1, &h, g_session, sizeof(g_session)) != JF_OK ||
         seg_open(&g, &h, run_ticks, stage, mem_size(MEM_SEG_STAGE)) != 0) {
         snprintf(note, n, "\"%s\" would not open", what);
         link_down();

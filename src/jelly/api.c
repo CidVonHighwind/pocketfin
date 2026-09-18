@@ -425,7 +425,43 @@ static jf_err get_list(jf_buf *b, const char *path, item *out, int max, int *got
     return read_list(r.body, out, max, got, total);
 }
 
-jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned outlen) {
+int jf_track_find(const jf_track *t, int n, const jf_track *want) {
+    int i;
+
+    if (!want->name[0]) return -1;
+    for (i = 0; i < n; i++)
+        if (!strcmp(t[i].name, want->name)) return t[i].index;
+    for (i = 0; i < n && want->lang[0]; i++)
+        if (!strcmp(t[i].lang, want->lang)) return t[i].index;
+    return -1;
+}
+
+static void read_tracks(const char *obj, size_t len, jf_tracks *t) {
+    size_t      slen = 0;
+    const char *s    = json_key_in(obj, len, "MediaStreams") ? json_array_item(obj, "MediaStreams", 0, &slen) : 0;
+
+    t->audio_n = t->sub_n = 0;
+    t->audio_default      = -1;
+    for (; s; s = json_next_item(s, slen, &slen)) {
+        char      kind[16] = "";
+        jf_track *to       = 0;
+
+        (void)json_str_in(s, slen, "Type", kind, sizeof(kind));
+        if (!strcmp(kind, "Audio") && t->audio_n < JF_TRACK_MAX) {
+            to = &t->audio[t->audio_n++];
+            if (t->audio_default < 0 && json_bool_in(s, slen, "IsDefault", 0)) t->audio_default = (int)json_num_in(s, slen, "Index", -1);
+        } else if (!strcmp(kind, "Subtitle") && t->sub_n < JF_TRACK_MAX) {
+            to = &t->sub[t->sub_n++];
+        }
+        if (!to) continue;
+
+        to->index = (int)json_num_in(s, slen, "Index", -1);
+        (void)json_str_in(s, slen, "Language", to->lang, sizeof(to->lang));
+        if (json_str_in(s, slen, "DisplayTitle", to->name, sizeof(to->name)) != 0) snprintf(to->name, sizeof(to->name), "Track %d", to->index);
+    }
+}
+
+jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned outlen, jf_tracks *tracks) {
     char        path[192], uid[JF_ID_LEN], token[JF_TOKEN_LEN];
     http_resp   r;
     jf_err      e;
@@ -434,10 +470,11 @@ jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned ou
 
     if (out && outlen) out[0] = 0;
     if (out_item) memset(out_item, 0, sizeof(*out_item));
+    if (tracks) memset(tracks, 0, sizeof(*tracks));
     if (!id || !id[0] || !out || !outlen) return JF_ERR_GARBLED;
     if (!creds(token, uid)) return JF_ERR_AUTH;
 
-    snprintf(path, sizeof(path), "/Items?userId=%s&ids=%s&Fields=Overview," LIST_FIELDS, uid, id);
+    snprintf(path, sizeof(path), "/Items?userId=%s&ids=%s&Fields=Overview,MediaStreams," LIST_FIELDS, uid, id);
     e = get_json(b, path, &r);
     if (e != JF_OK) return e;
 
@@ -445,6 +482,7 @@ jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned ou
     if (!obj) return JF_ERR_MISSING;
     (void)json_str_in(obj, len, "Overview", out, outlen);
     if (out_item) read_item(obj, (unsigned)len, out_item);
+    if (tracks) read_tracks(obj, len, tracks);
     return JF_OK;
 }
 
@@ -560,12 +598,13 @@ static const char kDeviceProfile[] =
     "{\"Condition\":\"EqualsAny\",\"Property\":\"AudioProfile\",\"Value\":\"lc\",\"IsRequired\":true}]}],"
     "\"SubtitleProfiles\":[]}}";
 
-static jf_err stream_url(jf_buf *b, const char *item_id, unsigned max_bps, char *out, unsigned outlen, char *session_out,
-                         unsigned sess_len) {
-    char      path[256], uid[JF_ID_LEN], token[JF_TOKEN_LEN];
+static jf_err stream_url(jf_buf *b, const char *item_id, unsigned max_bps, int audio, int sub, char *out, unsigned outlen,
+                         char *session_out, unsigned sess_len) {
+    char      path[320], uid[JF_ID_LEN], token[JF_TOKEN_LEN];
     char      body[1600]; /* 1,368 B measured */
     http_resp r;
     jf_err    e;
+    int       n;
 
     if (!item_id || !item_id[0] || !out || !outlen) return JF_ERR_GARBLED;
     out[0] = 0;
@@ -573,13 +612,14 @@ static jf_err stream_url(jf_buf *b, const char *item_id, unsigned max_bps, char 
     if (!creds(token, uid)) return JF_ERR_AUTH;
 
     /* startTimeTicks=0 even when resuming: the segment index is the position.
-       subtitleStreamIndex=-1 here, not on the answer: burned-in subtitles pad
-       the frame to 288 rows, which the decoder refuses. */
-    snprintf(path, sizeof(path),
-             "/Items/%s/PlaybackInfo?userId=%s&startTimeTicks=0"
-             "&autoOpenLiveStream=true&maxStreamingBitrate=%u"
-             "&subtitleStreamIndex=-1",
-             item_id, uid, max_bps);
+       Without mediaSourceId the server ignores both stream indexes. Burned in,
+       SRT, ASS and PGS all measured within 480x272. */
+    n = snprintf(path, sizeof(path),
+                 "/Items/%s/PlaybackInfo?userId=%s&startTimeTicks=0"
+                 "&autoOpenLiveStream=true&maxStreamingBitrate=%u"
+                 "&mediaSourceId=%s&subtitleStreamIndex=%d",
+                 item_id, uid, max_bps, item_id, sub < 0 ? -1 : sub);
+    if (audio >= 0) snprintf(path + n, sizeof(path) - (unsigned)n, "&audioStreamIndex=%d", audio);
     snprintf(body, sizeof(body), kDeviceProfile, max_bps, max_bps, max_bps > 130000u ? max_bps - 130000u : max_bps);
 
     e = exchange(b, "POST", path, body, 0, &r);
@@ -592,15 +632,17 @@ static jf_err stream_url(jf_buf *b, const char *item_id, unsigned max_bps, char 
         return JF_ERR_SERVER;
     }
 
-    url_set(out, outlen, "SubtitleStreamIndex=", "-1");
-    url_set(out, outlen, "SubtitleMethod=", "External");
+    if (sub < 0) {
+        url_set(out, outlen, "SubtitleStreamIndex=", "-1");
+        url_set(out, outlen, "SubtitleMethod=", "External");
+    }
     /* No Framerate= override: the server restamps 23.976 as 29.97 without
        adding frames, and every segment arrives 20% short. */
     return JF_OK;
 }
 
-jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigned max_bps, jf_hls *out, char *session_out,
-                   unsigned sess_len) {
+jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigned max_bps, int audio, int sub, jf_hls *out,
+                   char *session_out, unsigned sess_len) {
     char     url[JF_URL_LEN];
     char    *q, *slash;
     unsigned dlen;
@@ -609,7 +651,7 @@ jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigne
     if (!out) return JF_ERR_GARBLED;
     memset(out, 0, sizeof(*out));
 
-    e = stream_url(b, item_id, max_bps, url, sizeof(url), session_out, sess_len);
+    e = stream_url(b, item_id, max_bps, audio, sub, url, sizeof(url), session_out, sess_len);
     if (e != JF_OK) return e;
 
     q = strchr(url, '?');
@@ -639,7 +681,7 @@ jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigne
     }
 
     out->first_seg = (int)(start_ticks / JF_HLS_SEG_TICKS);
-    log_printf("hls: %s, first segment %d", out->dir, out->first_seg);
+    log_printf("hls: %s, first segment %d, audio %d, subtitle %d", out->dir, out->first_seg, audio, sub);
     return JF_OK;
 }
 

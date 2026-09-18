@@ -27,20 +27,21 @@ static int button_w(const char *label) {
 }
 
 /* The quiet button differs from the plain one in size only. */
-static void button(ui_rect at, const char *label, int hot, text_face_id f) {
-    const ui_theme *t  = ui_theme_now();
-    int             ty = ui_text_y(f, at.y, at.h);
-    int             tx = at.x + (at.w - text_width(f, label)) / 2;
+static void button(ui_rect at, const char *label, int hot, text_face_id f, int pad) {
+    const ui_theme *t    = ui_theme_now();
+    int             maxw = at.w - 2 * pad;
+    int             ty   = ui_text_y(f, at.y, at.h);
+    int             tx   = at.x + (at.w - ui_text_fit_w(f, label, maxw)) / 2;
 
     if (hot) {
         /* Corners included: a rectangle inset in a rounded fill leaves the
            flat colour showing where the corner curves away. */
         gfx_round_hgrad(at.x, at.y, at.w, at.h, 4, t->brand_a, t->brand_b);
-        text_draw(tx, ty, f, WHITE, label);
+        (void)ui_text_fit(tx, ty, f, WHITE, label, maxw);
     } else {
         gfx_round_fill(at.x, at.y, at.w, at.h, 4, UI_BUTTON_BG);
         gfx_round_frame(at.x, at.y, at.w, at.h, 4, UI_BUTTON_EDGE);
-        text_draw(tx, ty, f, UI_FG_DIM, label);
+        (void)ui_text_fit(tx, ty, f, UI_FG_DIM, label, maxw);
     }
 }
 
@@ -48,15 +49,17 @@ int ui_button(ui_frame *ui, ui_id id, const char *label) {
     ui_rect at  = ui_take(&ui->layout, button_w(label), UI_BUTTON_H);
     int     hot = ui_touch(ui, id, at);
 
-    button(at, label, hot, TEXT_BODY);
+    button(at, label, hot, TEXT_BODY, BUTTON_PAD);
     return hot && (ui->pressed & PAD_CROSS);
 }
 
 int ui_button_quiet(ui_frame *ui, ui_id id, const char *label) {
-    ui_rect at  = ui_take(&ui->layout, text_width(TEXT_SMALL, label) + 2 * QUIET_PAD, UI_BUTTON_QUIET_H);
+    int     w   = text_width(TEXT_SMALL, label) + 2 * QUIET_PAD;
+    int     box = ui_here(&ui->layout).w;
+    ui_rect at  = ui_take(&ui->layout, w < box ? w : box, UI_BUTTON_QUIET_H);
     int     hot = ui_touch(ui, id, at);
 
-    button(at, label, hot, TEXT_SMALL);
+    button(at, label, hot, TEXT_SMALL, QUIET_PAD);
     return hot && (ui->pressed & PAD_CROSS);
 }
 

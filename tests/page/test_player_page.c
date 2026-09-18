@@ -41,7 +41,7 @@ static int open_player(char *note, unsigned n, int has_prev, int has_next) {
        leaving is half of what this screen does. */
     screen_reset(&offline_page_screen);
     page_step(0);
-    player_page_show(&it, 10ull * 60ull * ITEM_TICKS_PER_S, has_prev, has_next);
+    player_page_show(&it, 10ull * 60ull * ITEM_TICKS_PER_S, has_prev, has_next, -1, -1);
     page_step(0);
 
     if (strcmp(screen_top_name(), "player") != 0) {

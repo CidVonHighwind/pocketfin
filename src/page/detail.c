@@ -20,6 +20,11 @@
 #define ID_FAV   1
 #define ID_PLAY  DETAIL_ID_PLAY
 #define ID_START 3
+#define ID_AUDIO 4
+#define ID_SUB   5
+#define ID_PICK  16 /* the list's rows, onward */
+
+enum { PICK_NONE = 0, PICK_AUDIO, PICK_SUB };
 
 /* The poster is fitted into this, not filled: the largest 2:3 and the largest
    16:9 the space holds. */
@@ -42,9 +47,15 @@ typedef struct {
        not when the button is pressed. */
     int writing, write_which, write_on;
 
-    int land;
+    int land; /* 1 + the id the cursor lands on next frame; 0 for none */
     int played_from; /* -1 when no run has been started from this page */
-    int in_a_row;
+
+    /* -1, or where a run starts once this item's tracks are in: an index
+       resolved without them plays the wrong track, or none. */
+    long long start;
+    int       picking;
+    ui_scroll pick_scroll;
+    int       in_a_row;
 
     /* Taken when the run starts. Asked again when the player returns, the one
        shared request is often in flight and the step is dropped ("next is NOT
@@ -67,10 +78,50 @@ static void enter(void *st, const void *arg, unsigned arg_len) {
     (void)arg_len;
     if (arg) d->it = *(const item *)arg;
     d->played_from = -1;
-    d->land        = 1;
+    d->start       = -1;
+    d->land        = 1 + ID_PLAY;
 }
 
-static void play_this(detail_state *d, unsigned long long from) {
+/* A choice is kept by name and language, not index: an index means nothing in
+   the next episode's file. An empty name is the server's audio, or no
+   subtitles. Per series, a film being its own; for this run only. */
+typedef struct {
+    char     key[ITEM_ID_LEN];
+    jf_track audio, sub;
+} track_want;
+
+#define WANT_MAX 8
+
+static track_want g_want[WANT_MAX];
+static unsigned   g_want_next;
+
+static track_want *wants(const item *it, int make) {
+    const char *key = it->series_id[0] ? it->series_id : it->id;
+    track_want *w;
+    int         i;
+
+    for (i = 0; i < WANT_MAX; i++)
+        if (!strcmp(g_want[i].key, key)) return &g_want[i];
+    if (!make) return 0;
+    w = &g_want[g_want_next++ % WANT_MAX];
+    memset(w, 0, sizeof(*w));
+    snprintf(w->key, sizeof(w->key), "%s", key);
+    return w;
+}
+
+static int audio_index(const item *it, const jf_tracks *t) {
+    const track_want *w = wants(it, 0);
+
+    return (w && t) ? jf_track_find(t->audio, t->audio_n, &w->audio) : -1;
+}
+
+static int sub_index(const item *it, const jf_tracks *t) {
+    const track_want *w = wants(it, 0);
+
+    return (w && t) ? jf_track_find(t->sub, t->sub_n, &w->sub) : -1;
+}
+
+static void play_this(detail_state *d, unsigned long long from, const jf_tracks *t) {
     const item *prev = library_adjacent(d->it.id, 0);
     const item *next = library_adjacent(d->it.id, 1);
 
@@ -80,7 +131,7 @@ static void play_this(detail_state *d, unsigned long long from) {
     if (next) d->neighbour[1] = *next;
 
     d->played_from = 1;
-    player_page_show(&d->it, from, prev != 0, next != 0);
+    player_page_show(&d->it, from, prev != 0, next != 0, audio_index(&d->it, t), sub_index(&d->it, t));
 }
 
 static void resumed(void *st) {
@@ -125,7 +176,7 @@ static void resumed(void *st) {
                 d->it = *step;
                 library_forget_item();
                 library_item(&d->it, &asked);
-                play_this(d, 0);
+                d->start = 0;
                 return;
             }
             if (d->in_a_row >= MAX_IN_A_ROW) log_printf("detail: stopped after %d in a row", d->in_a_row);
@@ -166,6 +217,65 @@ static void mins_text(unsigned mins, char *out, unsigned n) {
         snprintf(out, n, "%u min", mins);
 }
 
+/* The row of `index` in the list, or -1. */
+static int row_of(const jf_track *t, int n, int index) {
+    int i;
+
+    for (i = 0; i < n; i++)
+        if (t[i].index == index) return i;
+    return -1;
+}
+
+/* -1 plays what the server marks default, which the list shows as chosen. */
+static int audio_row(const detail_state *d, const jf_tracks *t) {
+    int index = audio_index(&d->it, t);
+    int at    = row_of(t->audio, t->audio_n, index >= 0 ? index : t->audio_default);
+
+    return at >= 0 ? at : 0;
+}
+
+/* Row 0 is Off. */
+static int sub_row(const detail_state *d, const jf_tracks *t) {
+    int index = sub_index(&d->it, t);
+
+    return index < 0 ? 0 : 1 + row_of(t->sub, t->sub_n, index);
+}
+
+static void open_pick(ui_frame *ui, detail_state *d, int which, int row) {
+    d->picking = which;
+    memset(&d->pick_scroll, 0, sizeof(d->pick_scroll));
+    ui_frame_focus_set(ui, ID_PICK + (ui_id)row);
+    /* The press that opened the list would otherwise choose its first row. */
+    ui->pressed &= ~PAD_CROSS;
+}
+
+static void close_pick(detail_state *d) {
+    d->land    = 1 + (d->picking == PICK_AUDIO ? ID_AUDIO : ID_SUB);
+    d->picking = PICK_NONE;
+}
+
+static void pick(ui_frame *ui, detail_state *d, const jf_tracks *t) {
+    static const char *rows[JF_TRACK_MAX + 1];
+    int                n = 0, i, got;
+
+    if (!t) {
+        close_pick(d);
+        return;
+    }
+    if (d->picking == PICK_AUDIO) {
+        for (i = 0; i < t->audio_n; i++) rows[n++] = t->audio[i].name;
+        got = ui_pick_list(ui, &d->pick_scroll, "Audio", rows, n, audio_row(d, t), ID_PICK);
+        if (got >= 0) wants(&d->it, 1)->audio = t->audio[got];
+    } else {
+        rows[n++] = "Off";
+        for (i = 0; i < t->sub_n; i++) rows[n++] = t->sub[i].name;
+        got = ui_pick_list(ui, &d->pick_scroll, "Subtitles, burned into the picture", rows, n, sub_row(d, t), ID_PICK);
+        if (got == 0) memset(&wants(&d->it, 1)->sub, 0, sizeof(jf_track));
+        if (got > 0) wants(&d->it, 1)->sub = t->sub[got - 1];
+    }
+    if (got >= 0) close_pick(d);
+}
+
 static void frame(ui_frame *ui, void *st) {
     detail_state             *d       = (detail_state *)st;
     static const ui_hint_item RIGHT[] = {{UI_BTN_CROSS, "Select"}, {UI_BTN_CIRCLE, "Back"}};
@@ -183,7 +293,7 @@ static void frame(ui_frame *ui, void *st) {
     library_item(&d->it, &li);
     if (li.item && !d->writing) d->it = *li.item;
 
-    {
+    if (!d->picking) {
         const item *step = (ui->pressed & PAD_L)   ? library_adjacent(d->it.id, 0)
                            : (ui->pressed & PAD_R) ? library_adjacent(d->it.id, 1)
                                                    : 0;
@@ -193,6 +303,15 @@ static void frame(ui_frame *ui, void *st) {
             library_forget_item();
             library_item(&d->it, &li);
         }
+    }
+
+    /* A failed fetch plays the defaults rather than never starting. */
+    if (d->start >= 0 && (li.tracks || li.state == LIB_FAILED)) {
+        long long from = d->start;
+
+        d->start = -1;
+        play_this(d, (unsigned long long)from, li.tracks);
+        return;
     }
 
     ui_page_busy(d->writing || li.state == LIB_BUSY);
@@ -248,9 +367,10 @@ static void frame(ui_frame *ui, void *st) {
         ui_end(L);
     }
 
-    /* Set before Play registers; the frame lands it on the way past. */
+    /* Set before anything it names registers; the frame lands it on the way
+       past. */
     if (d->land) {
-        ui_frame_focus_set(ui, ID_PLAY);
+        ui_frame_focus_set(ui, (ui_id)(d->land - 1));
         d->land = 0;
     }
 
@@ -271,9 +391,36 @@ static void frame(ui_frame *ui, void *st) {
         if (from >= 0) {
             /* A viewer's own press starts the auto-advance count again. */
             d->in_a_row = 0;
-            play_this(d, (unsigned long long)from);
-            return;
+            d->start    = from;
         }
+    }
+
+    /* The band is taken before the tracks are known, so nothing below moves
+       when they land. */
+    {
+        const jf_tracks *tr   = li.tracks;
+        ui_rect          band = ui_take(L, UI_FILL, UI_BUTTON_QUIET_H);
+        int              half = (band.w - ART_GAP) / 2;
+        char             label[JF_TRACK_NAME + 16];
+
+        ui_row_at(L, band, ART_GAP);
+        if (tr && tr->audio_n > 1) {
+            int row = audio_row(d, tr);
+
+            ui_col(L, half, 0);
+            snprintf(label, sizeof(label), "Audio: %s", tr->audio[row].name);
+            if (ui_button_quiet(ui, ID_AUDIO, label)) open_pick(ui, d, PICK_AUDIO, row);
+            ui_end(L);
+        }
+        if (tr && tr->sub_n > 0) {
+            int row = sub_row(d, tr);
+
+            ui_col(L, half, 0);
+            snprintf(label, sizeof(label), "Subtitles: %s", row ? tr->sub[row - 1].name : "Off");
+            if (ui_button_quiet(ui, ID_SUB, label)) open_pick(ui, d, PICK_SUB, row);
+            ui_end(L);
+        }
+        ui_end(L);
     }
 
     /* Buttons, not face buttons: unwatching drops the play count and the
@@ -301,6 +448,16 @@ static void frame(ui_frame *ui, void *st) {
     ui_end(L); /* the details column */
     ui_end(L); /* the row the poster and it share */
     ui_page_end(L, 0, 0, RIGHT, 2);
+
+    if (d->picking) pick(ui, d, li.tracks);
+}
+
+static int back(void *st) {
+    detail_state *d = (detail_state *)st;
+
+    if (!d->picking) return 0;
+    close_pick(d);
+    return 1;
 }
 
 /* The marks and the resume point are the fields most likely to be drawn from a
@@ -314,11 +471,14 @@ static void describe(void *st, char *out, unsigned n) {
     item_label(&d->it, 1, title, sizeof(title));
     snprintf(out, n,
              "title: %s\nid: %.8s\nkind: %d\nplayed: %d\nfavourite: %d\n"
-             "resume: %llu of %llu\nsynopsis: %s\nwriting: %d\nitem: %s\n",
+             "resume: %llu of %llu\nsynopsis: %s\nwriting: %d\nitem: %s\n"
+             "tracks: %d audio, %d subtitle\naudio: %d\nsubtitle: %d\npicking: %d\n",
              title, d->it.id, (int)d->it.kind, d->it.played, d->it.favorite, (unsigned long long)d->it.resume_ticks,
-             (unsigned long long)d->it.run_ticks, li.overview ? "yes" : "no", d->writing, library_state_text(li.state));
+             (unsigned long long)d->it.run_ticks, li.overview ? "yes" : "no", d->writing, library_state_text(li.state),
+             li.tracks ? li.tracks->audio_n : -1, li.tracks ? li.tracks->sub_n : -1, audio_index(&d->it, li.tracks),
+             sub_index(&d->it, li.tracks), d->picking);
 }
 
-const screen_def detail_page_screen = {"detail", sizeof(detail_state), sizeof(item), enter, frame, 0, resumed, describe};
+const screen_def detail_page_screen = {"detail", sizeof(detail_state), sizeof(item), enter, frame, back, resumed, describe};
 
 void detail_page_show(const item *it) { screen_push_with(&detail_page_screen, it, (unsigned)sizeof(*it)); }

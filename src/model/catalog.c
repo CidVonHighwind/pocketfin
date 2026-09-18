@@ -80,8 +80,9 @@ static ask  g_stash_ask;
 /* 512 is what the longest on this library needs; the field is truncated,
    never refused. */
 static char g_over[512];
-static char g_over_id[JF_ID_LEN];
-static item g_item_now;
+static char      g_over_id[JF_ID_LEN];
+static item      g_item_now;
+static jf_tracks g_tracks;
 
 static item g_adjacent[ADJACENT_MAX];
 static int  g_adjacent_n;
@@ -203,7 +204,15 @@ static void fetch(want_kind k, const ask *a, unsigned mine) {
 
     switch (k) {
     case W_MARK: e = a->mark == LIB_MARK_PLAYED ? jf_set_played(&g_rb, a->id, a->on) : jf_set_favorite(&g_rb, a->id, a->on); break;
-    case W_ITEM: e = jf_item(&g_rb, a->id, &g_item_now, g_over, (unsigned)sizeof(g_over)); break;
+    case W_ITEM: {
+        /* Staged: a refresh of the film on the panel would empty an open
+           track list for the length of the fetch. */
+        static jf_tracks stage;
+
+        e = jf_item(&g_rb, a->id, &g_item_now, g_over, (unsigned)sizeof(g_over), &stage);
+        if (e == JF_OK) g_tracks = stage;
+        break;
+    }
     case W_ADJACENT: e = jf_adjacent(&g_rb, a->series, a->id, g_adjacent, ADJACENT_MAX, &g_adjacent_n); break;
     case W_ITEMS:
         g_items_busy = 1;
@@ -435,6 +444,7 @@ void library_item(const item *it, lib_item *out) {
     /* Keyed on the id alone, not the state: gating on READY blanked the
        synopsis for the round trip of a refresh of the item already showing. */
     out->overview = strcmp(g_over_id, it->id) == 0 ? g_over : 0;
+    out->tracks   = out->overview ? &g_tracks : 0;
 }
 
 void library_forget_item(void) {

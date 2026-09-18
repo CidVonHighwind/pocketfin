@@ -83,6 +83,7 @@ static jf_buf g_rb = JF_BUF(g_reply);
 static char               g_item[64];
 static char               g_session[JF_SESSION_LEN];
 static unsigned long long g_from, g_run_ticks;
+static int                g_audio_track, g_sub_track;
 static unsigned long long g_last_dts;
 /* The one zero both tracks are measured from, taken once so it cannot move
    under samples already stamped against it. */
@@ -322,7 +323,8 @@ static int open_urls(void) {
     jf_err e;
 
     /* Read at open, so a settings change takes on the next film. */
-    e = jf_hls_open(&g_rb, g_item, g_from, (unsigned)pref(PREF_BITRATE_KBPS) * 1000u, &h, g_session, sizeof(g_session));
+    e = jf_hls_open(&g_rb, g_item, g_from, (unsigned)pref(PREF_BITRATE_KBPS) * 1000u, g_audio_track, g_sub_track, &h, g_session,
+                    sizeof(g_session));
     if (e != JF_OK) {
         snprintf(g_err, sizeof(g_err), "no stream: %s", jf_err_text(e));
         return -1;
@@ -488,7 +490,7 @@ static int serve(void *arg) {
 /* No clock change here: sceNetInit pins it, so scePowerSetClockFrequency
    returns success and leaves it where it was. Measured, the clock is worth
    7-13% on the link; the processor dial is the viewer's. */
-int stream_open(const char *item_id, unsigned long long from, unsigned long long run_ticks) {
+int stream_open(const char *item_id, unsigned long long from, unsigned long long run_ticks, int audio, int sub) {
     stream_close();
 
     if (!decode_available()) {
@@ -532,8 +534,10 @@ int stream_open(const char *item_id, unsigned long long from, unsigned long long
     g_decode_us = g_decode_n = 0;
     g_opened = g_ended = g_failed = 0;
     g_from      = from;
-    g_run_ticks = run_ticks;
-    g_open_us   = platform_clock_us();
+    g_run_ticks   = run_ticks;
+    g_audio_track = audio;
+    g_sub_track   = sub;
+    g_open_us     = platform_clock_us();
     g_first_us  = 0;
     g_frame_us  = 0;
     g_stall_at  = 0;

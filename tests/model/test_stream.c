@@ -65,7 +65,7 @@ static int t_a_film_plays_with_its_sound(char *note, unsigned n) {
     snprintf(id, sizeof(id), "%s", li.rows[at].id);
     run_ticks = li.rows[at].run_ticks;
 
-    if (stream_start() != 0 || stream_open(id, run_ticks > 2 * FROM ? FROM : 0, run_ticks) != 0) {
+    if (stream_start() != 0 || stream_open(id, run_ticks > 2 * FROM ? FROM : 0, run_ticks, -1, -1) != 0) {
         snprintf(note, n, "it would not open: %s", stream_error());
         stream_close();
         return 1;

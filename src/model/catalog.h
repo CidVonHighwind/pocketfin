@@ -52,7 +52,8 @@ void library_forget_items(void);
 typedef struct {
     lib_state   state;
     const item *item; /* NULL until the answer for this id is in */
-    const char *overview;
+    const char      *overview;
+    const jf_tracks *tracks; /* keyed like the overview */
 } lib_item;
 
 void library_item(const item *it, lib_item *out);

@@ -72,7 +72,28 @@ jf_err jf_reauth(const char *refused);
 jf_err jf_views(jf_buf *b, item *out, int max, int *got);
 jf_err jf_items(jf_buf *b, const char *parent_id, item_sort sort, int descending, item_filter filter, item *out, int max, int *got,
                 int *total);
-jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned outlen);
+/* Evangelion has 14 subtitle tracks; past the cap they are dropped. */
+#define JF_TRACK_MAX  24
+#define JF_TRACK_NAME 64
+
+typedef struct {
+    int  index; /* the server's stream index */
+    char name[JF_TRACK_NAME];
+    char lang[4]; /* ISO 639-2, "" when untagged */
+} jf_track;
+
+typedef struct {
+    jf_track audio[JF_TRACK_MAX], sub[JF_TRACK_MAX];
+    int      audio_n, sub_n;
+    int      audio_default; /* a stream index, -1 when none is marked */
+} jf_tracks;
+
+/* Another file's track as the stream index of the same one here: the same
+ * name, else the same language, else -1. An empty name is -1. */
+int jf_track_find(const jf_track *t, int n, const jf_track *want);
+
+/* `tracks` may be null. */
+jf_err jf_item(jf_buf *b, const char *id, item *out_item, char *out, unsigned outlen, jf_tracks *tracks);
 
 /* Marking played also clears the resume point. There is no undo. */
 jf_err jf_set_played(jf_buf *b, const char *id, int on);
@@ -93,8 +114,10 @@ typedef struct {
     int  first_seg;
 } jf_hls;
 
-jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigned max_bps, jf_hls *out, char *session_out,
-                   unsigned sess_len);
+/* `audio` -1 is the server's default track, `sub` -1 is none; a subtitle is
+ * burned into the picture. */
+jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigned max_bps, int audio, int sub, jf_hls *out,
+                   char *session_out, unsigned sess_len);
 
 /* seg < 0 is the init segment. Carries the token in force now; the transcode
  * is keyed by playSessionId, so a renewed token keeps the same encoder. */

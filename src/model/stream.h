@@ -57,8 +57,9 @@ int  stream_start(void);
 void stream_stop(void);
 
 /* `run_ticks` is the item's length, 0 when unknown -- it is what tells "the
- * encoder is behind" from "the film ended". */
-int stream_open(const char *item_id, unsigned long long from, unsigned long long run_ticks);
+ * encoder is behind" from "the film ended". `audio` and `sub` are
+ * jf_hls_open()'s. */
+int stream_open(const char *item_id, unsigned long long from, unsigned long long run_ticks, int audio, int sub);
 
 /* Empty until the worker has opened the run. */
 const char *stream_session(void);

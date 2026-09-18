@@ -8,6 +8,7 @@
 
 #include "view/frame.h"
 #include "view/layout.h"
+#include "view/scroll.h"
 #include "base/rect.h"
 #include "view/style.h"
 #include "port/text.h"
@@ -89,7 +90,8 @@ void ui_footer_at(ui_rect at, const ui_hint_item *left, int left_n, const ui_hin
  * has the cursor and cross is pressed. */
 int ui_button(ui_frame *ui, ui_id id, const char *label);
 
-/* The same button, smaller. */
+/* The same button, smaller, and never wider than its box: a long label is
+ * cut. */
 #define UI_BUTTON_QUIET_H 17
 int ui_button_quiet(ui_frame *ui, ui_id id, const char *label);
 
@@ -232,6 +234,11 @@ typedef enum {
  * The row's wash and the box the cursor aims at run to the panel's edges
  * while its contents keep the page's margin. */
 int ui_option(ui_frame *ui, ui_id id, const char *label, const char *value, ui_option_kind kind, int at, int lo, int hi);
+
+/* A list over the page, drawn after it: the page's widgets leave the
+ * navigation, so only these rows take the cursor. Row i is `first_id` + i;
+ * `current` is drawn in the accent. Returns the row cross chose, or -1. */
+int ui_pick_list(ui_frame *ui, ui_scroll *s, const char *title, const char *const *rows, int n, int current, ui_id first_id);
 
 /* A selected row's wash, for an element that arranges its own row. */
 void ui_row_wash(ui_rect at);

@@ -58,6 +58,7 @@ typedef struct {
     int            playing, have;
     stream_picture shown;
     char           id[JF_ID_LEN];
+    int            audio, sub; /* kept for every seek, which reopens the stream */
 
     /* A seek opens a new session, so the old one is stopped first or the server
        shows the film being watched twice. */
@@ -70,6 +71,7 @@ typedef struct {
     item               it;
     unsigned long long start_ticks;
     int                has_prev, has_next;
+    int                audio, sub;
 } player_arg;
 
 SCREEN_ARG_FITS(player_arg);
@@ -295,6 +297,8 @@ static void enter(void *st, const void *arg, unsigned arg_len) {
         p->b.dur      = it.run_ticks ? it.run_ticks : DEMO_DUR;
         p->b.has_prev = a->has_prev;
         p->b.has_next = a->has_next;
+        p->audio      = a->audio;
+        p->sub        = a->sub;
         item_label(&it, 1, p->title, sizeof(p->title));
         snprintf(p->id, sizeof(p->id), "%s", it.id);
         p->b.pos = a->start_ticks < p->b.dur ? a->start_ticks : 0;
@@ -303,6 +307,7 @@ static void enter(void *st, const void *arg, unsigned arg_len) {
         p->b.has_next = 1;
         snprintf(p->title, sizeof(p->title), "%s", "Aguirre, the Wrath of God");
         p->b.pos = DEMO_START;
+        p->audio = p->sub = -1;
     }
     p->b.title   = p->title;
     p->b.id_prev = PLAYER_ID_PREV;
@@ -344,7 +349,7 @@ static void open_at(player_state *p, unsigned long long at) {
     p->have = 0;
     end_session(p, p->b.pos);
 
-    p->playing = stream_open(p->id, at, p->b.dur) == 0;
+    p->playing = stream_open(p->id, at, p->b.dur, p->audio, p->sub) == 0;
     if (!p->playing) log_printf("play: %s -- %s", p->title, stream_error());
 }
 
@@ -488,7 +493,7 @@ static void describe(void *st, char *out, unsigned n) {
 
 const screen_def player_page_screen = {"player", sizeof(player_state), sizeof(player_arg), enter, frame, 0, 0, describe};
 
-void player_page_show(const item *it, unsigned long long start_ticks, int has_prev, int has_next) {
+void player_page_show(const item *it, unsigned long long start_ticks, int has_prev, int has_next, int audio, int sub) {
     player_arg a;
 
     memset(&a, 0, sizeof(a));
@@ -496,5 +501,7 @@ void player_page_show(const item *it, unsigned long long start_ticks, int has_pr
     a.start_ticks = start_ticks;
     a.has_prev    = has_prev;
     a.has_next    = has_next;
+    a.audio       = audio;
+    a.sub         = sub;
     screen_push_with(&player_page_screen, &a, (unsigned)sizeof(a));
 }

@@ -213,7 +213,7 @@ static int t_one_item_brings_its_synopsis_and_its_marks(char *note, unsigned n) 
     jf_err e;
 
     if (answer(200, ITEM_REPLY, note, n) != 0) return -1;
-    e = jf_item(&g_b, "it3m", &it, over, sizeof(over));
+    e = jf_item(&g_b, "it3m", &it, over, sizeof(over), 0);
     wait_served();
 
     if (e != JF_OK) {
@@ -234,7 +234,7 @@ static int t_one_item_brings_its_synopsis_and_its_marks(char *note, unsigned n) 
     }
 
     if (answer(200, ITEM_REPLY_NO_OVERVIEW, note, n) != 0) return -1;
-    e = jf_item(&g_b, "it3m", &it, over, sizeof(over));
+    e = jf_item(&g_b, "it3m", &it, over, sizeof(over), 0);
     wait_served();
     if (e != JF_OK || over[0] != 0) {
         snprintf(note, n, "an item with no synopsis gave %s and left \"%s\"", jf_err_text(e), over);
@@ -242,6 +242,89 @@ static int t_one_item_brings_its_synopsis_and_its_marks(char *note, unsigned n) 
     }
 
     snprintf(note, n, "synopsis and marks in one ask; absent is empty, not a fault");
+    return 0;
+}
+
+#define TRACKS_REPLY                                                                                        \
+    "{\"Items\":[{\"Id\":\"it3m\",\"Name\":\"Paprika\",\"Type\":\"Movie\",\"MediaStreams\":["               \
+    "{\"Index\":0,\"Type\":\"Video\",\"DisplayTitle\":\"1080p H264\"},"                                     \
+    "{\"Index\":1,\"Type\":\"Audio\",\"DisplayTitle\":\"English - AAC\",\"IsDefault\":false},"             \
+    "{\"Index\":2,\"Type\":\"Audio\",\"DisplayTitle\":\"Japanese - AAC - Default\",\"Language\":\"jpn\",\"IsDefault\":true}," \
+    "{\"Index\":3,\"Type\":\"Subtitle\",\"DisplayTitle\":\"English - SUBRIP\"}]}],\"TotalRecordCount\":1}"
+
+#define PLAYBACK_REPLY                                                                           \
+    "{\"MediaSources\":[{\"TranscodingUrl\":\"/videos/it3m/stream.mp4?MediaSourceId=it3m"         \
+    "&AudioStreamIndex=2&SubtitleStreamIndex=3&SubtitleMethod=Encode&ApiKey=k\"}],"              \
+    "\"PlaySessionId\":\"s1\"}"
+
+static int t_tracks_are_read_and_the_chosen_ones_are_asked_for(char *note, unsigned n) {
+    item      it;
+    char      over[64];
+    jf_tracks tr;
+    jf_hls    h;
+    jf_err    e;
+
+    if (answer(200, TRACKS_REPLY, note, n) != 0) return -1;
+    e = jf_item(&g_b, "it3m", &it, over, sizeof(over), &tr);
+    wait_served();
+    if (e != JF_OK || !strstr(g_request, "MediaStreams")) {
+        snprintf(note, n, "the item answered %s, or the request did not ask for its streams", jf_err_text(e));
+        return 1;
+    }
+    if (tr.audio_n != 2 || tr.sub_n != 1 || tr.audio_default != 2 || tr.sub[0].index != 3 || strcmp(tr.audio[1].name, "Japanese - AAC - Default") ||
+        strcmp(tr.audio[1].lang, "jpn") || tr.audio[0].lang[0]) {
+        snprintf(note, n, "read %d audio, %d subtitle, default %d, \"%s\" in \"%s\"", tr.audio_n, tr.sub_n, tr.audio_default, tr.audio[1].name,
+                 tr.audio[1].lang);
+        return 1;
+    }
+
+    if (answer(200, PLAYBACK_REPLY, note, n) != 0) return -1;
+    e = jf_hls_open(&g_b, "it3m", 0, 1000000u, 2, 3, &h, 0, 0);
+    wait_served();
+    /* Without mediaSourceId the server ignores both indexes. */
+    if (e != JF_OK || !strstr(g_request, "mediaSourceId=it3m&subtitleStreamIndex=3&audioStreamIndex=2")) {
+        snprintf(note, n, "%s, asked %.120s", jf_err_text(e), g_request);
+        return 1;
+    }
+    if (!strstr(h.query, "SubtitleStreamIndex=3&SubtitleMethod=Encode")) {
+        snprintf(note, n, "a chosen subtitle was dropped: %.120s", h.query);
+        return 1;
+    }
+
+    if (answer(200, PLAYBACK_REPLY, note, n) != 0) return -1;
+    e = jf_hls_open(&g_b, "it3m", 0, 1000000u, -1, -1, &h, 0, 0);
+    wait_served();
+    if (e != JF_OK || strstr(g_request, "audioStreamIndex") || !strstr(h.query, "SubtitleStreamIndex=-1&SubtitleMethod=External")) {
+        snprintf(note, n, "no subtitle still streamed one: %.120s", h.query);
+        return 1;
+    }
+    snprintf(note, n, "2 audio and 1 subtitle read; the chosen pair asked for and kept; none still forced off");
+    return 0;
+}
+
+/* The next episode's file numbers its tracks its own way. */
+static int t_a_track_is_found_again_in_another_file(char *note, unsigned n) {
+    static const jf_track next[] = {{1, "English - AC3", "eng"}, {2, "Japanese - AAC", "jpn"}, {5, "Signs - English - ASS", "eng"}};
+    static const struct {
+        jf_track want;
+        int      index;
+    } CASE[] = {
+        {{9, "Signs - English - ASS", "eng"}, 5}, /* the name wins over the language */
+        {{9, "Japanese - AAC - Default", "jpn"}, 2},
+        {{9, "Deutsch", "deu"}, -1},
+        {{9, "", "eng"}, -1}, /* none chosen */
+    };
+    int i;
+
+    for (i = 0; i < (int)(sizeof(CASE) / sizeof(CASE[0])); i++) {
+        int got = jf_track_find(next, 3, &CASE[i].want);
+
+        if (got != CASE[i].index) {
+            snprintf(note, n, "\"%s\" (%s) found %d, wanted %d", CASE[i].want.name, CASE[i].want.lang, got, CASE[i].index);
+            return 1;
+        }
+    }
+    snprintf(note, n, "by name, then language, else none");
     return 0;
 }
 
@@ -405,6 +488,8 @@ void test_jellyfin_query_register(void) {
 #ifndef __PSP__
     selftest_add("jfquery", "a mark is a post and unmarking a delete", t_a_mark_is_a_post_and_unmarking_a_delete);
     selftest_add("jfquery", "one item brings its synopsis and its marks", t_one_item_brings_its_synopsis_and_its_marks);
+    selftest_add("jfquery", "tracks are read and the chosen ones are asked for", t_tracks_are_read_and_the_chosen_ones_are_asked_for);
+    selftest_add("jfquery", "a track is found again in another file", t_a_track_is_found_again_in_another_file);
     selftest_add("jfquery", "adjacent asks the episodes route and reads it back", t_adjacent_asks_the_episodes_route_and_reads_it_back);
     selftest_add("jfquery", "adjacent without a series makes no request", t_adjacent_without_a_series_makes_no_request);
     selftest_add("jfquery", "only the token in force signs in again", t_only_the_token_in_force_signs_in_again);
