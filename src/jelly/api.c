@@ -57,7 +57,7 @@ static void auth_header(const char *token, char *out, unsigned cap) {
                  token, g_device);
     else
         snprintf(out, cap,
-                 "X-Emby-Authorization: MediaBrowser Client=\"PSP\", Device=\"PSP\", "
+                 "Authorization: MediaBrowser Client=\"PSP\", Device=\"PSP\", "
                  "DeviceId=\"%s\", Version=\"1.0.0\"\r\n",
                  g_device);
 }
