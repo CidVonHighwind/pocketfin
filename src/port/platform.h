@@ -33,6 +33,10 @@ int platform_cpu_mhz(void);
  * PARAM.SFO shows in the save manager as "Corrupted Data". */
 const char *platform_data_dir(void);
 
+/* What the server's session list should call this machine: the console's
+ * nickname, or "PSP"/"PC" when there is nothing better. Never empty. */
+const char *platform_device_name(void);
+
 /* Where the PC and the console see the same files. Empty with no cable, and
  * only io/link.h's thread opens anything there. */
 const char *platform_hostfs_dir(void);

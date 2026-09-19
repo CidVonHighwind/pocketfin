@@ -179,6 +179,18 @@ const char *platform_data_dir(void) {
     return ready;
 }
 
+const char *platform_device_name(void) {
+    static char ready[64];
+    int         rc;
+
+    if (ready[0]) return ready;
+
+    rc = sceUtilityGetSystemParamString(PSP_SYSTEMPARAM_ID_STRING_NICKNAME, ready, (int)sizeof(ready));
+    if (rc < 0 || !ready[0]) snprintf(ready, sizeof(ready), "PSP");
+    ready[sizeof(ready) - 1] = 0;
+    return ready;
+}
+
 /* Whether host0: opens is whether a cable is attached. A "no" is cached only
  * after half a second: the module loads right behind a fresh usbhostfs, and
  * a first ask before the mount answers made a run that logged only to the
