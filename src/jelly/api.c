@@ -15,6 +15,7 @@
 
 static jf_conn        g_conn;
 static char           g_device[JF_ID_LEN];
+static char           g_device_name[JF_NAME_LEN];
 static char           g_token[JF_TOKEN_LEN];
 static char           g_user_id[JF_ID_LEN];
 static char           g_server_name[JF_NAME_LEN];
@@ -50,17 +51,30 @@ static jf_err err_from_result(http_result rc, int status) {
     return err_from_status(status);
 }
 
+/* The header is a comma-separated list of quoted values, so a quote or a comma
+   in a name would end it early. The console's nickname is the viewer's. */
+static void copy_name(char *dst, unsigned cap, const char *src) {
+    unsigned i = 0;
+
+    for (; *src && i + 1 < cap; src++) {
+        unsigned char ch = (unsigned char)*src;
+        if (ch == '"' || ch == ',' || ch == '\\' || ch < ' ') ch = ' ';
+        dst[i++] = (char)ch;
+    }
+    dst[i] = 0;
+}
+
 static void auth_header(const char *token, char *out, unsigned cap) {
     if (token[0])
         snprintf(out, cap,
                  "Authorization: MediaBrowser Token=\"%s\", Client=\"Pocketfin\", "
-                 "Device=\"PSP\", DeviceId=\"%s\", Version=\"" POCKETFIN_VERSION "\"\r\n",
-                 token, g_device);
+                 "Device=\"%s\", DeviceId=\"%s\", Version=\"" POCKETFIN_VERSION "\"\r\n",
+                 token, g_device_name, g_device);
     else
         snprintf(out, cap,
-                 "Authorization: MediaBrowser Client=\"Pocketfin\", Device=\"PSP\", "
+                 "Authorization: MediaBrowser Client=\"Pocketfin\", Device=\"%s\", "
                  "DeviceId=\"%s\", Version=\"" POCKETFIN_VERSION "\"\r\n",
-                 g_device);
+                 g_device_name, g_device);
 }
 
 static void trim(char *s) {
@@ -195,6 +209,7 @@ void jf_use(const jf_conn *c) {
     /* Signing in revokes the token of anything else using the same id: a
        desktop build sharing the console's killed its film. */
     snprintf(g_device, sizeof(g_device), "%s", platform_cpu_mhz() ? "pocketfin-psp" : "pocketfin-dev");
+    copy_name(g_device_name, sizeof(g_device_name), platform_device_name());
     platform_lock_give(lock());
 }
 
