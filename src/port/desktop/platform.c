@@ -113,6 +113,8 @@ const char *platform_data_dir(void) {
     return dir_named("pocketfin-data", ready, sizeof(ready));
 }
 
+const char *platform_device_name(void) { return "PC"; }
+
 const char *platform_hostfs_dir(void) {
     static char ready[64];
     return dir_named("pocketfin-link", ready, sizeof(ready));
