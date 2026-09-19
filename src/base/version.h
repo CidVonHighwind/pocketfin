@@ -3,6 +3,6 @@
 #ifndef BASE_VERSION_H
 #define BASE_VERSION_H
 
-#define POCKETFIN_VERSION "0.9.1"
+#define POCKETFIN_VERSION "0.9.2"
 
 #endif
