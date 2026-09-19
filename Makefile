@@ -99,6 +99,12 @@ BUILD_PRX = 1
 
 EXTRA_TARGETS   = $(PSP_EBOOT)
 PSP_EBOOT_TITLE = Pocketfin
+VERSION        := $(shell awk -F'"' '/define POCKETFIN_VERSION/ { print $$2 }' src/base/version.h)
+# APP_VER is what the XMB's Information screen shows. It must be NN.NN: 0.9.3
+# as written showed nothing, 00.93 shows as 0.93. Before the include:
+# build.mak folds SFOFLAGS in with :=.
+APP_VER        := $(shell echo $(VERSION) | awk -F. '{ printf "%02d.%d%d", $$1, $$2, $$3 }')
+SFOFLAGS        = -s APP_VER=$(APP_VER)
 # The fin, 144x80. tools/icon.py draws it; it is not run by the build.
 PSP_EBOOT_ICON  = assets/ICON0.PNG
 
@@ -108,6 +114,8 @@ include $(PSPSDK)/lib/build.mak
 # The icon is packed into the EBOOT, but build.mak repacks only when the
 # module changes: a new icon on its own left the old one in the EBOOT.
 $(PSP_EBOOT): $(PSP_EBOOT_ICON)
+# Likewise the SFO, which build.mak makes only when it is missing.
+$(PSP_EBOOT_SFO): src/base/version.h
 
 -include $(OBJS:.o=.d)
 
@@ -120,7 +128,6 @@ $(PSP_EBOOT): $(PSP_EBOOT_ICON)
 # checked-in example is a file somebody copies WITHOUT reading, and the
 # comments are the whole point of it.
 DIST = build/dist/PSP/GAME/pocketfin
-VERSION := $(shell awk -F'"' '/define POCKETFIN_VERSION/ { print $$2 }' src/base/version.h)
 RELEASE = pocketfin-$(VERSION).zip
 
 dist: $(PSP_EBOOT)
