@@ -3,6 +3,7 @@
 #include "io/http.h"
 #include "base/json.h"
 #include "base/log.h"
+#include "base/version.h"
 #include "port/platform.h"
 
 #include <ctype.h>
@@ -52,13 +53,13 @@ static jf_err err_from_result(http_result rc, int status) {
 static void auth_header(const char *token, char *out, unsigned cap) {
     if (token[0])
         snprintf(out, cap,
-                 "Authorization: MediaBrowser Token=\"%s\", Client=\"PSP\", "
-                 "Device=\"PSP\", DeviceId=\"%s\", Version=\"1.0.0\"\r\n",
+                 "Authorization: MediaBrowser Token=\"%s\", Client=\"Pocketfin\", "
+                 "Device=\"PSP\", DeviceId=\"%s\", Version=\"" POCKETFIN_VERSION "\"\r\n",
                  token, g_device);
     else
         snprintf(out, cap,
-                 "Authorization: MediaBrowser Client=\"PSP\", Device=\"PSP\", "
-                 "DeviceId=\"%s\", Version=\"1.0.0\"\r\n",
+                 "Authorization: MediaBrowser Client=\"Pocketfin\", Device=\"PSP\", "
+                 "DeviceId=\"%s\", Version=\"" POCKETFIN_VERSION "\"\r\n",
                  g_device);
 }
 
