@@ -600,9 +600,14 @@ static const char kDeviceProfile[] =
     "\"Context\":\"Streaming\",\"MaxAudioChannels\":\"2\",\"CopyTimestamps\":false,"
     "\"EnableSubtitlesInManifest\":false,\"BreakOnNonKeyFrames\":false}],"
     "\"ContainerProfiles\":[],"
+    /* Main allows B-slices, which the Media Engine does not reliably decode:
+       seen as sceMpegAvcDecode failing (0x80628002) a few segments into an
+       otherwise healthy stream. Baseline forbids B-slices by spec, so this
+       holds even when the server's encoder is hardware-accelerated and would
+       otherwise pick Main on its own. */
     "\"CodecProfiles\":[{\"Type\":\"Video\",\"Codec\":\"h264\",\"Conditions\":["
     "{\"Condition\":\"EqualsAny\",\"Property\":\"VideoProfile\","
-    "\"Value\":\"baseline|constrained baseline|main\",\"IsRequired\":true},"
+    "\"Value\":\"baseline|constrained baseline\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"VideoLevel\",\"Value\":\"31\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"Width\",\"Value\":\"480\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"Height\",\"Value\":\"272\",\"IsRequired\":true},"
