@@ -473,7 +473,8 @@ static void read_tracks(const char *obj, size_t len, jf_tracks *t) {
 
         to->index = (int)json_num_in(s, slen, "Index", -1);
         (void)json_str_in(s, slen, "Language", to->lang, sizeof(to->lang));
-        if (json_str_in(s, slen, "DisplayTitle", to->name, sizeof(to->name)) != 0) snprintf(to->name, sizeof(to->name), "Track %d", to->index);
+        if (json_str_in(s, slen, "DisplayTitle", to->name, sizeof(to->name)) != 0)
+            snprintf(to->name, sizeof(to->name), "Track %d", to->index);
     }
 }
 
@@ -602,7 +603,7 @@ static const char kDeviceProfile[] =
     "\"ContainerProfiles\":[],"
     "\"CodecProfiles\":[{\"Type\":\"Video\",\"Codec\":\"h264\",\"Conditions\":["
     "{\"Condition\":\"EqualsAny\",\"Property\":\"VideoProfile\","
-    "\"Value\":\"baseline|constrained baseline|main\",\"IsRequired\":true},"
+    "\"Value\":\"baseline|constrained baseline\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"VideoLevel\",\"Value\":\"31\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"Width\",\"Value\":\"480\",\"IsRequired\":true},"
     "{\"Condition\":\"LessThanEqual\",\"Property\":\"Height\",\"Value\":\"272\",\"IsRequired\":true},"
