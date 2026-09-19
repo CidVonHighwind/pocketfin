@@ -473,7 +473,8 @@ static void read_tracks(const char *obj, size_t len, jf_tracks *t) {
 
         to->index = (int)json_num_in(s, slen, "Index", -1);
         (void)json_str_in(s, slen, "Language", to->lang, sizeof(to->lang));
-        if (json_str_in(s, slen, "DisplayTitle", to->name, sizeof(to->name)) != 0) snprintf(to->name, sizeof(to->name), "Track %d", to->index);
+        if (json_str_in(s, slen, "DisplayTitle", to->name, sizeof(to->name)) != 0)
+            snprintf(to->name, sizeof(to->name), "Track %d", to->index);
     }
 }
 
@@ -600,11 +601,6 @@ static const char kDeviceProfile[] =
     "\"Context\":\"Streaming\",\"MaxAudioChannels\":\"2\",\"CopyTimestamps\":false,"
     "\"EnableSubtitlesInManifest\":false,\"BreakOnNonKeyFrames\":false}],"
     "\"ContainerProfiles\":[],"
-    /* Main allows B-slices, which the Media Engine does not reliably decode:
-       seen as sceMpegAvcDecode failing (0x80628002) a few segments into an
-       otherwise healthy stream. Baseline forbids B-slices by spec, so this
-       holds even when the server's encoder is hardware-accelerated and would
-       otherwise pick Main on its own. */
     "\"CodecProfiles\":[{\"Type\":\"Video\",\"Codec\":\"h264\",\"Conditions\":["
     "{\"Condition\":\"EqualsAny\",\"Property\":\"VideoProfile\","
     "\"Value\":\"baseline|constrained baseline\",\"IsRequired\":true},"
