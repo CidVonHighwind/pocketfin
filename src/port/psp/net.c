@@ -340,7 +340,11 @@ static int resolve(const char *host, struct in_addr *out, char *err, unsigned er
     g_resolved_addr = *out;
     g_resolved_at   = platform_clock_us();
     platform_lock_give(g_resolve_lock);
-    log_printf("net: %s is %s", host, inet_ntoa(*out));
+    {
+        const unsigned char *b = (const unsigned char *)&out->s_addr;
+
+        log_printf("net: %s is %u.%u.%u.%u", host, b[0], b[1], b[2], b[3]);
+    }
     return 0;
 }
 
