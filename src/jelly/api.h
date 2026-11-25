@@ -70,6 +70,10 @@ jf_err jf_connect(void);
 jf_err jf_reauth(const char *refused);
 
 jf_err jf_views(jf_buf *b, item *out, int max, int *got);
+/* A `parent_id` of JF_ARTIST_PREFIX + an artist's id lists that artist's
+   albums: an artist is not the parent of anything. */
+#define JF_ARTIST_PREFIX "artist:"
+
 jf_err jf_items(jf_buf *b, const char *parent_id, item_sort sort, int descending, item_filter filter, item *out, int max, int *got,
                 int *total);
 /* Evangelion has 14 subtitle tracks; past the cap they are dropped. */
@@ -122,6 +126,11 @@ jf_err jf_hls_open(jf_buf *b, const char *item_id, uint64_t start_ticks, unsigne
 /* seg < 0 is the init segment. Carries the token in force now; the transcode
  * is keyed by playSessionId, so a renewed token keeps the same encoder. */
 void jf_hls_url(const jf_hls *h, int seg, char *out, unsigned outlen);
+
+/* A song as AAC in ADTS frames, 44.1 kHz stereo -- the only rate the
+   console's output channel takes -- transcoded by the server, from
+   `start_ticks`. The token rides in the query, as for HLS segments. */
+void jf_audio_path(const char *item_id, uint64_t start_ticks, unsigned bitrate, char *out, unsigned outlen);
 
 /* Writes watch state to the server with no undo; gated in model/catalog.c. */
 jf_err jf_report_start(jf_buf *b, const char *item_id, const char *session, uint64_t ticks);

@@ -5,6 +5,12 @@
 #include "page/detail.h"
 #include "page/listing.h"
 #include "page/network.h"
+#include "page/nowplaying.h"
+
+#include "jelly/api.h"
+#include "model/music.h"
+
+#include <stdio.h>
 
 #include "io/net.h"
 #include "model/catalog.h"
@@ -28,8 +34,21 @@ int page_retry_or_pick(void) {
 void page_open_item(const item *it) {
     if (!it) return;
 
-    if (it->kind == ITEM_KIND_MOVIE || it->kind == ITEM_KIND_EPISODE)
+    if (it->kind == ITEM_KIND_MOVIE || it->kind == ITEM_KIND_EPISODE) {
         detail_page_show(it);
-    else
+    } else if (it->kind == ITEM_KIND_SONG) {
+        /* On its own, from a row of recent things: just this song. */
+        music_play(it, 1, 0);
+        screen_push(&nowplaying_page_screen);
+    } else if (it->kind == ITEM_KIND_ALBUM) {
+        listing_page_show_sorted(it->id, it->name, ITEM_SORT_TRACK);
+    } else if (it->kind == ITEM_KIND_ARTIST) {
+        char parent[ITEM_ID_LEN];
+
+        /* Ids are 32 hex digits: the prefix and one fit ITEM_ID_LEN. */
+        snprintf(parent, sizeof(parent), "%s%.32s", JF_ARTIST_PREFIX, it->id);
+        listing_page_show_sorted(parent, it->name, ITEM_SORT_RELEASE);
+    } else {
         listing_page_show(it->id, it->name);
+    }
 }

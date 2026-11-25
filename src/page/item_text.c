@@ -12,6 +12,12 @@ void item_art_box(const item *it, int *w, int *h) {
     if (h) *h = wide ? ITEM_THUMB_WIDE_H : ITEM_THUMB_H;
 }
 
+const char *item_art_id(const item *it) {
+    if (!it) return "";
+    /* A song shows its album's picture (see jelly/item.h). */
+    return (it->kind == ITEM_KIND_SONG && it->series_id[0]) ? it->series_id : it->id;
+}
+
 void item_label(const item *it, int with_series, char *out, size_t outlen) {
     if (!out || !outlen) return;
     out[0] = 0;
@@ -61,6 +67,9 @@ static const char *kind_name(item_kind k) {
     case ITEM_KIND_SEASON: return "Season";
     case ITEM_KIND_EPISODE: return "Episode";
     case ITEM_KIND_COLLECTION: return "Collection";
+    case ITEM_KIND_ALBUM: return "Album";
+    case ITEM_KIND_ARTIST: return "Artist";
+    case ITEM_KIND_SONG: return "Song";
     default: return "Library";
     }
 }
@@ -85,6 +94,21 @@ void item_row_subtitle(const item *it, int flat, char *out, size_t outlen) {
             snprintf(out, outlen, "%s", label);
             return;
         }
+    }
+
+    /* A track: its number and length, which is what an album list is read by. */
+    if (it->kind == ITEM_KIND_SONG) {
+        unsigned secs = (unsigned)(it->run_ticks / ITEM_TICKS_PER_S);
+
+        if (it->episode_no > 0)
+            snprintf(out, outlen, "Track %d   %u:%02u", it->episode_no, secs / 60u, secs % 60u);
+        else
+            snprintf(out, outlen, "%u:%02u", secs / 60u, secs % 60u);
+        return;
+    }
+    if (it->kind == ITEM_KIND_ALBUM && it->series[0]) {
+        snprintf(out, outlen, "%s", it->series);
+        return;
     }
 
     /* A folder belonging to a show would otherwise read "Library". */

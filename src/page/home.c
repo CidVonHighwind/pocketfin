@@ -1,6 +1,8 @@
 #include "page/home.h"
 
 #include "page/item_text.h"
+#include "page/nowplaying.h"
+#include "model/music.h"
 #include "model/posters.h"
 #include "page/open.h"
 #include "model/catalog.h"
@@ -175,7 +177,7 @@ static int rail(ui_frame *ui, home_state *h, ui_scroll *scroll, int y, const cha
            card ever got a picture at all. */
         on_panel = visible && at_x + UI_CARD_BOX(cw) > 0 && at_x < GFX_W;
         if (on_panel) {
-            art.px = poster_get(items[i].id, cw, ch, &art.tex_w, &art.tex_h, &art.w, &art.h, &art.waiting);
+            art.px = poster_get(item_art_id(&items[i]), cw, ch, &art.tex_w, &art.tex_h, &art.w, &art.h, &art.waiting);
             if (art.waiting) h->waiting++;
         }
 
@@ -313,6 +315,7 @@ static void frame(ui_frame *ui, void *st) {
     ui_scroll_step(&h->page_scroll);
 
     if (ui->pressed & PAD_START) screen_push(&settings_page_screen);
+    if ((ui->pressed & PAD_SELECT) && music_active()) screen_push(&nowplaying_page_screen);
 
     ui_page_end(&ui->layout, LEFT, 2, RIGHT, 1);
 }

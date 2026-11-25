@@ -15,10 +15,12 @@ extern const screen_def listing_page_screen;
 typedef struct {
     char parent[ITEM_ID_LEN];
     char title[64];
+    int  sort; /* the order it opens in: an album opens in track order */
 } listing_arg;
 
 /* `parent_id` NULL is the top of the library. */
 void listing_page_show(const char *parent_id, const char *title);
+void listing_page_show_sorted(const char *parent_id, const char *title, int sort);
 
 int listing_page_count(void);
 
