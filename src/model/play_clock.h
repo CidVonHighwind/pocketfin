@@ -50,4 +50,27 @@ int play_clock_running(const play_clock *c);
  * one playing. Ignored while stopped, or once the sound is stale. */
 void play_clock_follow(play_clock *c, unsigned long long at, unsigned since_us);
 
+/* WHEN A PICTURE IS SHOWN. The clock above is pinned to the sound every frame,
+ * and the sound's stamp is a thread's wake-up time: a few milliseconds of
+ * jitter. Deciding pictures by it, a picture whose moment fell near a refresh
+ * landed on one refresh or the next by chance -- at 23.976 on 59.94 a picture
+ * held three refreshes and the next one, a visible hitch about every second.
+ *
+ * The view runs on wall time and is drawn toward the clock by a 64th of
+ * the gap a frame: enough for the 0.09% the crystals drift, deaf to the jitter.
+ * More than PLAY_VIEW_SNAP_US apart (a seek, a stall) it jumps. The sound
+ * itself still follows the clock, untouched. */
+#define PLAY_VIEW_SNAP_US 40000u
+#define PLAY_VIEW_GAIN    64
+
+typedef struct {
+    unsigned long long pos; /* ticks */
+    unsigned           last_us;
+    int                ok;
+} play_view;
+
+/* Once a frame, after the clock's step and follow. */
+void play_view_step(play_view *v, const play_clock *c, unsigned now_us);
+unsigned long long play_view_pos(const play_view *v);
+
 #endif
