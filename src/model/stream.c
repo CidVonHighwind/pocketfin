@@ -129,6 +129,13 @@ const char *stream_session(void) { return g_opened ? g_session : ""; }
 
 static unsigned long long elapsed(void) { return play_clock_pos(&g_clock); }
 
+/* When pictures are shown: see play_view in play_clock.h. */
+static play_view g_view;
+
+/* Half a refresh, so a picture goes to the NEAREST refresh rather than the
+   first one after its moment: 8 ms early at worst instead of 16 late. */
+#define HALF_REFRESH_TICKS (8333ull * (ITEM_TICKS_PER_S / 1000000ull))
+
 static unsigned long long in_ticks(unsigned long long dts) {
     if (!g_mp4.video.timescale) return 0;
     return dts * ITEM_TICKS_PER_S / g_mp4.video.timescale;
@@ -542,6 +549,7 @@ int stream_open(const char *item_id, unsigned long long from, unsigned long long
     g_frame_us  = 0;
     g_stall_at  = 0;
     play_clock_start(&g_clock, from, g_open_us);
+    memset(&g_view, 0, sizeof(g_view));
     snprintf(g_item, sizeof(g_item), "%s", item_id);
 
     g_running = 1;
@@ -645,6 +653,7 @@ int stream_frame(stream_picture *out, int paused) {
     /* Once a frame, only here. */
     play_clock_step(&g_clock, platform_clock_us());
     if (g_audio_on && sound_us) play_clock_follow(&g_clock, sound_at, platform_clock_us() - sound_us);
+    play_view_step(&g_view, &g_clock, platform_clock_us());
 
     if (!have) {
         if (g_ended) return -1;
@@ -655,7 +664,7 @@ int stream_frame(stream_picture *out, int paused) {
 
     /* One picture at most a frame: decoding until the film catches up would
        spend a whole frame here after a stall. */
-    if (r.at > elapsed()) return 0;
+    if (r.at > play_view_pos(&g_view) + HALF_REFRESH_TICKS) return 0;
 
     {
         unsigned t0 = platform_clock_us();

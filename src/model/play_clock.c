@@ -38,6 +38,32 @@ unsigned long long play_clock_pos(const play_clock *c) { return c ? c->pos : 0ul
 
 int play_clock_running(const play_clock *c) { return c && c->playing && !c->paused; }
 
+void play_view_step(play_view *v, const play_clock *c, unsigned now_us) {
+    unsigned long long target = play_clock_pos(c);
+    long long          gap;
+    unsigned           d;
+
+    if (!v) return;
+    d          = now_us - v->last_us;
+    v->last_us = now_us;
+    if (!v->ok || !play_clock_running(c)) {
+        /* Stopped or new: nothing to smooth, and a resume starts level. */
+        v->pos = target;
+        v->ok  = 1;
+        return;
+    }
+    if (d > PLAY_CLOCK_STEP_CAP_US) d = PLAY_CLOCK_STEP_CAP_US;
+    v->pos += (unsigned long long)d * (ITEM_TICKS_PER_S / 1000000ull);
+
+    gap = (long long)(target - v->pos);
+    if (gap > (long long)PLAY_VIEW_SNAP_US * 10 || gap < -(long long)PLAY_VIEW_SNAP_US * 10)
+        v->pos = target;
+    else
+        v->pos = (unsigned long long)((long long)v->pos + gap / PLAY_VIEW_GAIN);
+}
+
+unsigned long long play_view_pos(const play_view *v) { return v ? v->pos : 0ull; }
+
 void play_clock_follow(play_clock *c, unsigned long long at, unsigned since_us) {
     if (!play_clock_running(c) || since_us > PLAY_CLOCK_SOUND_STALE_US) return;
     if (since_us > PLAY_CLOCK_SOUND_FRAME_US) since_us = PLAY_CLOCK_SOUND_FRAME_US;

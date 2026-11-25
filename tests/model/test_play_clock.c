@@ -6,6 +6,7 @@
 #include "tools/selftest.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define MS(n)       ((unsigned)(n) * 1000u)
 #define TICKS_MS(n) ((unsigned long long)(n) * (ITEM_TICKS_PER_S / 1000ull))
@@ -218,6 +219,133 @@ static int t_it_follows_the_sound_only_while_it_plays(char *note, unsigned n) {
     return 0;
 }
 
+/* 59.94 refreshes against a clock pinned to a jittery sound stamp: the view
+   must hold steady, and 23.976 pictures must fall 2-3-2-3, never on one
+   refresh alone -- which is the hitch. */
+#define REFRESH_US 16683u
+static unsigned jitter_us(unsigned *seed) {
+    *seed = *seed * 1103515245u + 12345u;
+    return (*seed >> 8) % 8001u; /* 0..8 ms, so +-4 around the truth */
+}
+
+static int t_the_view_ignores_the_sounds_jitter(char *note, unsigned n) {
+    play_clock c;
+    play_view  v;
+    unsigned   seed = 7, now = 1000000u, i, worst = 0;
+
+    play_clock_start(&c, 0, now);
+    play_clock_playing(&c, 1);
+    memset(&v, 0, sizeof(v));
+    for (i = 0; i < 600; i++) {
+        unsigned long long truth = (unsigned long long)i * REFRESH_US;
+
+        now += REFRESH_US;
+        c.pos = (unsigned long long)((long long)truth + 1000000 + (long long)jitter_us(&seed) - 4000) * 10u; /* ticks */
+        play_view_step(&v, &c, now);
+        if (i > 120) { /* settled */
+            long long err = (long long)play_view_pos(&v) / 10 - (long long)truth - 1000000;
+            unsigned  e   = (unsigned)(err < 0 ? -err : err);
+
+            if (e > worst) worst = e;
+        }
+    }
+    if (worst > 1500u) {
+        snprintf(note, n, "the view strayed %u us from true time under 4 ms of jitter", worst);
+        return 1;
+    }
+    snprintf(note, n, "within %u us of true time", worst);
+    return 0;
+}
+
+/* 23.976 on 59.94 is 2.5 refreshes a picture: held 2-3-2-3. A picture tipped
+   onto the wrong refresh breaks that into 3-3 then 2-2, which is the hitch.
+   Every alignment of pictures to refreshes is tried, as the drift between the
+   crystals sweeps through them all; the bare clock broke it on 16% of
+   pictures under this jitter. */
+static int t_pictures_keep_the_2_3_rhythm(char *note, unsigned n) {
+    unsigned breaks = 0, shown = 0, phase;
+
+    for (phase = 0; phase < REFRESH_US; phase += 1000u) {
+        play_clock         c;
+        play_view          v;
+        unsigned           seed = 11 + phase, now = 1000000u, i, held = 0, prev = 0;
+        unsigned long long next = 10000000ull + phase * 10ull;
+        const unsigned long long pic = 10000000ull * 1001u / 24000u; /* 23.976 */
+
+        play_clock_start(&c, 0, now);
+        play_clock_playing(&c, 1);
+        memset(&v, 0, sizeof(v));
+        for (i = 0; i < 1500; i++) {
+            long long j = (long long)jitter_us(&seed) - 4000;
+
+            now += REFRESH_US;
+            c.pos = (unsigned long long)((long long)i * REFRESH_US + 1000000 + j) * 10u;
+            play_view_step(&v, &c, now);
+            held++;
+            /* As stream.c: a picture at its nearest refresh, one a refresh. */
+            if (next <= play_view_pos(&v) + 8333u * 10u) {
+                if (i > 300) {
+                    shown++;
+                    if (held == prev || held < 2 || held > 3) breaks++;
+                }
+                prev = held;
+                held = 0;
+                next += pic;
+            }
+        }
+    }
+    if (breaks * 100u > shown) {
+        snprintf(note, n, "%u of %u pictures broke the 2-3 rhythm", breaks, shown);
+        return 1;
+    }
+    snprintf(note, n, "%u of %u pictures off the rhythm", breaks, shown);
+    return 0;
+}
+
+/* The sound's crystal runs 0.09% off the wall clock: the view must follow it,
+   or pictures slide out of step with the sound over a film. */
+static int t_the_view_follows_the_sounds_drift(char *note, unsigned n) {
+    play_clock c;
+    play_view  v;
+    unsigned   now = 1000000u, i;
+    long long  err = 0;
+
+    play_clock_start(&c, 0, now);
+    play_clock_playing(&c, 1);
+    memset(&v, 0, sizeof(v));
+    for (i = 0; i < 60u * 60u * 10u; i++) { /* ten minutes */
+        now += REFRESH_US;
+        c.pos = (unsigned long long)i * REFRESH_US * 10009ull / 1000ull; /* 0.09% fast */
+        play_view_step(&v, &c, now);
+    }
+    err = (long long)(c.pos - play_view_pos(&v)) / 10;
+    if (err > 2000 || err < -2000) {
+        snprintf(note, n, "after ten minutes the view was %lld us off the sound", err);
+        return 1;
+    }
+    snprintf(note, n, "%lld us behind the sound after ten minutes", err);
+    return 0;
+}
+
+static int t_the_view_jumps_with_a_seek(char *note, unsigned n) {
+    play_clock c;
+    play_view  v;
+    unsigned   now = 1000000u;
+
+    play_clock_start(&c, 0, now);
+    play_clock_playing(&c, 1);
+    memset(&v, 0, sizeof(v));
+    play_view_step(&v, &c, now);
+    now += REFRESH_US;
+    c.pos = 600ull * 10000000ull; /* ten minutes on */
+    play_view_step(&v, &c, now);
+    if (play_view_pos(&v) != c.pos) {
+        snprintf(note, n, "after a seek the view was %llu ticks behind", (unsigned long long)(c.pos - play_view_pos(&v)));
+        return 1;
+    }
+    return 0;
+}
+
 void test_play_clock_register(void) {
     selftest_add("clock_film", "it starts stopped", t_it_starts_stopped);
     selftest_add("clock_film", "playing it keeps real time", t_playing_it_keeps_real_time);
@@ -227,4 +355,8 @@ void test_play_clock_register(void) {
     selftest_add("clock_film", "it starts where the film was resumed", t_it_starts_where_the_film_was_resumed);
     selftest_add("clock_film", "it does not drift from the sound", t_it_does_not_drift_from_the_sound);
     selftest_add("clock_film", "it follows the sound only while it plays", t_it_follows_the_sound_only_while_it_plays);
+    selftest_add("clock_film", "the view ignores the sound's jitter", t_the_view_ignores_the_sounds_jitter);
+    selftest_add("clock_film", "pictures keep the 2-3 rhythm", t_pictures_keep_the_2_3_rhythm);
+    selftest_add("clock_film", "the view follows the sound's drift", t_the_view_follows_the_sounds_drift);
+    selftest_add("clock_film", "the view jumps with a seek", t_the_view_jumps_with_a_seek);
 }
