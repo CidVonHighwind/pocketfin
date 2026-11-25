@@ -37,4 +37,7 @@ void item_row_subtitle(const item *it, int flat, char *out, size_t outlen);
  * on an unwatched film and nothing on a watched one. */
 int item_progress_pct(const item *it);
 
+/* Whose artwork a row shows: its own, or for a song its album's. */
+const char *item_art_id(const item *it);
+
 #endif

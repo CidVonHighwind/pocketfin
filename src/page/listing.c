@@ -5,6 +5,8 @@
 #include "jelly/query.h"
 
 #include "page/item_text.h"
+#include "page/nowplaying.h"
+#include "model/music.h"
 #include "model/catalog.h"
 #include "model/posters.h"
 #include "port/gfx.h"
@@ -98,9 +100,9 @@ static void enter(void *st, const void *arg, unsigned arg_len) {
 
     (void)arg_len;
     if (arg) v->at = *(const listing_arg *)arg;
-    v->sort   = ITEM_SORT_NAME;
+    v->sort   = (item_sort)v->at.sort;
     v->filter = ITEM_FILTER_ALL;
-    v->desc   = item_sort_default_descending(ITEM_SORT_NAME);
+    v->desc   = item_sort_default_descending(v->sort);
     memset(&v->scroll, 0, sizeof(v->scroll));
     g_opts = 0;
     reask(v);
@@ -116,10 +118,13 @@ static void resumed(void *st) {
     g_taken = 0;
 }
 
-void listing_page_show(const char *parent_id, const char *title) {
+void listing_page_show(const char *parent_id, const char *title) { listing_page_show_sorted(parent_id, title, ITEM_SORT_NAME); }
+
+void listing_page_show_sorted(const char *parent_id, const char *title, int sort) {
     listing_arg into;
 
     memset(&into, 0, sizeof(into));
+    into.sort = sort;
     snprintf(into.parent, sizeof(into.parent), "%s", parent_id ? parent_id : "");
     snprintf(into.title, sizeof(into.title), "%s", title ? title : "");
     screen_push_with(&listing_page_screen, &into, (unsigned)sizeof(into));
@@ -201,6 +206,10 @@ static void frame(ui_frame *ui, void *st) {
 
     /* A second Reload while one is on the wire only throws away the first. */
     if ((ui->pressed & PAD_TRIANGLE) && was != LIB_BUSY) refetch(v);
+    if ((ui->pressed & PAD_SELECT) && music_active()) {
+        screen_push(&nowplaying_page_screen);
+        return;
+    }
     if (ui->pressed & PAD_START) {
         screen_push(&settings_page_screen);
         return;
@@ -253,7 +262,7 @@ static void frame(ui_frame *ui, void *st) {
         /* Every row registers, on the panel or not, or the cursor could never
            wrap from the last row to the first. */
         int         on_panel = !(at.y + at.h < view.y || at.y > view.y + view.h);
-        const char *id       = g_items[i].id;
+        const char *id       = item_art_id(&g_items[i]);
         int         aw, ah;
 
         /* Reading a picture renews it against eviction: reading all 128 rows
@@ -283,7 +292,13 @@ static void frame(ui_frame *ui, void *st) {
 
     if (opened >= 0) {
         g_opened = opened;
-        page_open_item(&g_items[opened]);
+        /* A song plays the rows from here on: an album in its order. */
+        if (g_items[opened].kind == ITEM_KIND_SONG) {
+            music_play(g_items, g_n, opened);
+            screen_push(&nowplaying_page_screen);
+        } else {
+            page_open_item(&g_items[opened]);
+        }
     }
 }
 

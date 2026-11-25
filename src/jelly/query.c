@@ -14,6 +14,7 @@ static const struct {
     [ITEM_SORT_RUNTIME] = {"Runtime", "Runtime,SortName", 0},
     [ITEM_SORT_PLAYED]  = {"Last played", "DatePlayed,SortName", 1},
     [ITEM_SORT_RANDOM]  = {"Random", "Random", 0},
+    [ITEM_SORT_TRACK]   = {"Track", "ParentIndexNumber,IndexNumber,SortName", 0},
 };
 
 static const struct {

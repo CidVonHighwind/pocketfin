@@ -21,7 +21,14 @@ typedef enum {
     ITEM_KIND_EPISODE,
     /* A box set, or a folder inside a library: opened like a folder, but its
      * artwork is 2:3 like a film's, where a library's own image is 16:9. */
-    ITEM_KIND_COLLECTION
+    ITEM_KIND_COLLECTION,
+    /* Music. An album opens as its tracks in disc and track order; an artist
+     * as its albums; a song plays. A song carries its album artist in
+     * `series`, its album's id in `series_id` (whose artwork it shows) and its
+     * disc and track number in `season_no` and `episode_no`. */
+    ITEM_KIND_ALBUM,
+    ITEM_KIND_ARTIST,
+    ITEM_KIND_SONG
 } item_kind;
 
 typedef struct {

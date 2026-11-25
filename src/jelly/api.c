@@ -373,6 +373,12 @@ static void read_item(const char *obj, unsigned len, item *out) {
     /* 2:3 posters; only a library itself is 16:9. */
     else if (!strcmp(kind, "BoxSet") || !strcmp(kind, "Folder"))
         out->kind = ITEM_KIND_COLLECTION;
+    else if (!strcmp(kind, "MusicAlbum"))
+        out->kind = ITEM_KIND_ALBUM;
+    else if (!strcmp(kind, "MusicArtist"))
+        out->kind = ITEM_KIND_ARTIST;
+    else if (!strcmp(kind, "Audio"))
+        out->kind = ITEM_KIND_SONG;
     else
         out->kind = ITEM_KIND_FOLDER;
 
@@ -395,6 +401,23 @@ static void read_item(const char *obj, unsigned len, item *out) {
         const char *tags = json_key_in(obj, len, "ImageTags");
 
         out->has_image = (tags && json_key_in(tags, len - (size_t)(tags - obj), "Primary")) ? 1 : 0;
+    }
+
+    /* Music reuses the episode fields (see item.h): who, and whose artwork. */
+    if (out->kind == ITEM_KIND_ALBUM || out->kind == ITEM_KIND_SONG) {
+        char who[ITEM_NAME_LEN];
+
+        who[0] = 0;
+        (void)json_str_in(obj, len, "AlbumArtist", who, sizeof(who));
+        if (who[0]) snprintf(out->series, sizeof(out->series), "%s", who);
+    }
+    if (out->kind == ITEM_KIND_SONG) {
+        char album_tag[8];
+
+        (void)json_str_in(obj, len, "AlbumId", out->series_id, sizeof(out->series_id));
+        /* Most songs carry no picture of their own; their album's stands in. */
+        if (!out->has_image && out->series_id[0] && json_str_in(obj, len, "AlbumPrimaryImageTag", album_tag, sizeof(album_tag)) == 0)
+            out->has_image = 2;
     }
 }
 
@@ -562,8 +585,13 @@ jf_err jf_items(jf_buf *b, const char *parent_id, item_sort sort, int descending
     if (!creds(token, uid)) return JF_ERR_AUTH;
 
     n = snprintf(path, sizeof(path), "/Items?userId=%s&Limit=%d", uid, limit);
+    if (parent_id && !strncmp(parent_id, JF_ARTIST_PREFIX, sizeof(JF_ARTIST_PREFIX) - 1))
+        /* Recursive here only: an artist's albums sit in folders anywhere. */
+        n += snprintf(path + n, sizeof(path) - (unsigned)n, "&ArtistIds=%s&IncludeItemTypes=MusicAlbum&Recursive=true",
+                      parent_id + sizeof(JF_ARTIST_PREFIX) - 1);
     /* Not Recursive, which flattens the whole library. */
-    if (parent_id && parent_id[0]) n += snprintf(path + n, sizeof(path) - (unsigned)n, "&parentId=%s", parent_id);
+    else if (parent_id && parent_id[0])
+        n += snprintf(path + n, sizeof(path) - (unsigned)n, "&parentId=%s", parent_id);
     n += snprintf(path + n, sizeof(path) - (unsigned)n, "&SortBy=%s&SortOrder=%s", item_sort_key(sort),
                   descending ? "Descending" : "Ascending");
     if (item_filter_key(filter)) n += snprintf(path + n, sizeof(path) - (unsigned)n, "&Filters=%s", item_filter_key(filter));
@@ -757,6 +785,16 @@ static jf_err report(jf_buf *b, const char *path, const char *item_id, const cha
              "\"IsPaused\":%s,\"CanSeek\":true}",
              item_id, session ? session : "", (unsigned long long)ticks, paused ? "true" : "false");
     return exchange(b, "POST", path, body, 204, &r);
+}
+
+void jf_audio_path(const char *item_id, uint64_t start_ticks, unsigned bitrate, char *out, unsigned outlen) {
+    char token[JF_TOKEN_LEN];
+
+    (void)creds(token, 0);
+    snprintf(out, outlen,
+             "/Audio/%s/stream.aac?static=false&audioCodec=aac&audioSampleRate=44100&audioChannels=2"
+             "&audioBitRate=%u&startTimeTicks=%llu&deviceId=%s&api_key=%s",
+             item_id, bitrate, (unsigned long long)start_ticks, g_device, token);
 }
 
 jf_err jf_report_start(jf_buf *b, const char *item_id, const char *session, uint64_t ticks) {

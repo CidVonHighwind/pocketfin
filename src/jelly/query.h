@@ -18,6 +18,7 @@ typedef enum {
     ITEM_SORT_RUNTIME,
     ITEM_SORT_PLAYED,
     ITEM_SORT_RANDOM,
+    ITEM_SORT_TRACK, /* disc, then track: an album's own order */
     ITEM_SORT_COUNT
 } item_sort;
 

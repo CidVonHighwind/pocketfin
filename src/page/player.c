@@ -1,6 +1,7 @@
 /* See player.h. */
 
 #include "page/player.h"
+#include "model/music.h"
 
 #include "jelly/api.h"
 #include "model/catalog.h"
@@ -286,6 +287,8 @@ static void enter(void *st, const void *arg, unsigned arg_len) {
     player_state *p = (player_state *)st;
     item          it;
 
+    /* One audio output: the film has it. */
+    music_stop();
     memset(p, 0, sizeof(*p));
     memset(&it, 0, sizeof(it));
 
