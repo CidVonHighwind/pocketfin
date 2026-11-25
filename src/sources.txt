@@ -29,6 +29,7 @@ src/base/jpeg_header.c
 src/io/link.c
 src/io/net.c
 src/io/http.c
+src/io/secure.c
 
 
 # The server, as data. Every call here blocks.
@@ -82,6 +83,8 @@ src/page/listing.c
 src/page/detail.c
 src/page/home.c
 src/page/network.c
+src/page/keys.c
+src/page/login.c
 src/page/player.c
 
 
@@ -132,6 +135,7 @@ tests/view/test_layout.c
 tests/page/test_item_row.c
 tests/page/test_settings_page.c
 tests/page/test_boot_page.c
+tests/page/test_login_page.c
 tests/view/test_scroll.c
 tests/page/test_listing_page.c
 tests/page/test_detail_page.c

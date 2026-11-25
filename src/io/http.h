@@ -1,5 +1,5 @@
-/* Plain HTTP: no TLS stack is reachable from user mode. Requests block, so
- * none may run on the drawing thread. */
+/* HTTP, or HTTPS when http_set_secure() says so (io/secure.c, mbedTLS in the
+ * console build). Requests block, so none may run on the drawing thread. */
 #ifndef IO_HTTP_H
 #define IO_HTTP_H
 
@@ -64,7 +64,15 @@ http_sock http_presend(const char *host, int port, const char *path, char *err, 
 http_result http_stream(http_sock pre, const char *host, int port, const char *path, http_sink sink, void *user, http_headers_fn on_headers,
                         void *hdr_user, int *status_out, http_cost *cost, char *err, unsigned errlen);
 
-/* Supplied by each port. */
+/* Every connection from now on is TLS (on) or plain (off). `server_name` is
+ * the name the certificate must carry; NULL uses each request's host. One
+ * server per run, so this is global. */
+void http_set_secure(int on, const char *server_name);
+int  http_secure(void);
+/* 0 when this build cannot speak HTTPS at all. */
+int http_tls_available(void);
+
+/* io/secure.c, over the port's raw connection (io/sock.h). */
 http_sock http_sock_open(const char *host, int port, http_result *why, char *err, unsigned errlen);
 
 /* recv returns 0 on a clean close, and sets *timed_out when a held-open

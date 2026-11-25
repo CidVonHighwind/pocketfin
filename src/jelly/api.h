@@ -10,9 +10,9 @@
 #define JF_ID_LEN      40
 #define JF_NAME_LEN    64
 #define JF_TOKEN_LEN   48
-#define JF_HOST_LEN    48
+#define JF_HOST_LEN    128 /* a name, not just a dotted address */
 #define JF_USER_LEN    32
-#define JF_PASS_LEN    32
+#define JF_PASS_LEN    64
 #define JF_SESSION_LEN 64
 
 /* 140 episodes with Overview measured 250,178 B. */
@@ -34,6 +34,11 @@ typedef enum {
 
 const char *jf_err_text(jf_err e);
 
+/* What the transport said about the last request that failed to reach the
+   server ("x does not resolve", "x:443 would not connect", a TLS reason), or
+   "" -- for a page that has to say more than "did not answer". */
+const char *jf_last_reason(void);
+
 /* Never shared between threads. */
 typedef struct {
     char     *p;
@@ -46,9 +51,10 @@ typedef struct {
 typedef struct {
     char host[JF_HOST_LEN];
     int  port;
+    int  https; /* TLS to the server (a reverse proxy, usually on 443) */
     char user[JF_USER_LEN];
-    char pass[JF_PASS_LEN];
-    int  profile; /* 0: ask the viewer */
+    char pass[JF_PASS_LEN]; /* only from a hand-written jellyfin.txt */
+    int  profile;           /* 0: ask the viewer */
 } jf_conn;
 
 /* jellyfin.txt from the data directory, else run/. 0 when a host was found. */
@@ -62,8 +68,44 @@ const char *jf_user(void);
 const char *jf_server_name(void);
 int         jf_signed_in(void);
 
-/* The only sign-in; data calls before it answer JF_ERR_AUTH. */
+/* Signs in with the user and password jellyfin.txt carries; data calls before
+   a sign-in answer JF_ERR_AUTH. */
 jf_err jf_connect(void);
+
+/* --- Signing in from the application ------------------------------------
+ *
+ * The server and the session the server handed out live in account.txt in
+ * the data directory: a token, never a password. */
+
+/* 0 when account.txt names a server; `has_token` says whether it also holds a
+   session to resume. Puts the server in force (jf_use) either way. */
+int jf_load_account(jf_conn *c, int *has_token);
+int jf_account_parse(const char *text, jf_conn *c, char *token, unsigned token_len, char *user_id, unsigned uid_len);
+/* Writes the server in force and the session, if any. */
+int  jf_save_account(void);
+/* Ends the session here (the server's copy is left to expire). Keeps the
+   server, so signing in again does not mean typing it again. */
+void jf_forget_session(void);
+
+/* Asks the server who the token belongs to: JF_OK keeps it, JF_ERR_AUTH
+   means it was revoked or expired. */
+jf_err jf_check_session(void);
+
+/* User and password typed into the application. Neither is kept: the token
+   that comes back is. */
+jf_err jf_sign_in(const char *user, const char *pass);
+
+/* Quick Connect: the viewer approves `code` from a signed-in app or the web
+   page. begin() asks for a code, check() polls (1 once approved), finish()
+   trades the approval for a session. */
+#define JF_QC_CODE_LEN   12
+#define JF_QC_SECRET_LEN 96
+jf_err jf_quick_connect_begin(char *code, unsigned code_len, char *secret, unsigned secret_len);
+jf_err jf_quick_connect_check(const char *secret, int *approved);
+jf_err jf_quick_connect_finish(const char *secret);
+
+/* Escapes for a JSON string; the output is cut, never overrun. */
+void jf_json_escape(const char *in, char *out, unsigned cap);
 
 /* `refused` is the header or URL that carried the refused token. Signs in
  * again only if that token is still the one in force. */

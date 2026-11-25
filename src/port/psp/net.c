@@ -1,6 +1,7 @@
 /* net.h and http.h's socket seam, for the console. */
 
 #include "io/http.h"
+#include "io/sock.h"
 #include "io/net.h"
 #include "io/net_private.h"
 
@@ -297,7 +298,57 @@ net_state_t net_state(void) {
     return (g_last = net_link_is_current() ? NET_UP : NET_DOWN);
 }
 
-http_sock http_sock_open(const char *host, int port, http_result *why, char *err, unsigned errlen) {
+/* A name costs a DNS round trip, and every request opens a new connection, so
+   the last answer is kept. */
+#define RESOLVE_KEEP_US (10u * 60u * 1000000u)
+
+static platform_lock *g_resolve_lock;
+static int            g_resolver_up;
+static char           g_resolved_host[128];
+static struct in_addr g_resolved_addr;
+static unsigned       g_resolved_at;
+
+static int resolve(const char *host, struct in_addr *out, char *err, unsigned errlen) {
+    int  rid = -1, rc;
+    char rbuf[1024];
+
+    if (inet_aton(host, out)) return 0;
+    if (!g_resolve_lock) g_resolve_lock = platform_lock_new("resolve");
+    platform_lock_take(g_resolve_lock);
+    if (g_resolved_host[0] && strcmp(g_resolved_host, host) == 0 && platform_clock_us() - g_resolved_at < RESOLVE_KEEP_US) {
+        *out = g_resolved_addr;
+        platform_lock_give(g_resolve_lock);
+        return 0;
+    }
+    if (!g_resolver_up) {
+        rc = sceNetResolverInit();
+        if (rc < 0) log_printf("net: sceNetResolverInit 0x%08X", (unsigned)rc);
+        g_resolver_up = rc >= 0;
+    }
+    rc = g_resolver_up ? sceNetResolverCreate(&rid, rbuf, sizeof(rbuf)) : -1;
+    if (rc >= 0) {
+        rc = sceNetResolverStartNtoA(rid, host, out, 3 /* s */, 2 /* retries */);
+        sceNetResolverDelete(rid);
+    }
+    if (rc < 0) {
+        platform_lock_give(g_resolve_lock);
+        log_printf("net: %s does not resolve, 0x%08X", host, (unsigned)rc);
+        if (err && errlen) snprintf(err, errlen, "%s does not resolve", host);
+        return -1;
+    }
+    snprintf(g_resolved_host, sizeof(g_resolved_host), "%s", host);
+    g_resolved_addr = *out;
+    g_resolved_at   = platform_clock_us();
+    platform_lock_give(g_resolve_lock);
+    {
+        const unsigned char *b = (const unsigned char *)&out->s_addr;
+
+        log_printf("net: %s is %u.%u.%u.%u", host, b[0], b[1], b[2], b[3]);
+    }
+    return 0;
+}
+
+http_sock port_sock_open(const char *host, int port, http_result *why, char *err, unsigned errlen) {
     struct sockaddr_in a;
     int                s;
 
@@ -315,9 +366,8 @@ http_sock http_sock_open(const char *host, int port, http_result *why, char *err
     memset(&a, 0, sizeof(a));
     a.sin_family = AF_INET;
     a.sin_port   = htons((unsigned short)port);
-    /* A dotted quad, not a name: no resolver is started. */
-    if (!host || !inet_aton(host, &a.sin_addr)) {
-        if (err && errlen) snprintf(err, errlen, "\"%s\" is not a dotted address", host ? host : "");
+    if (!host || !host[0] || resolve(host, &a.sin_addr, err, errlen) != 0) {
+        if (err && errlen && (!host || !host[0])) snprintf(err, errlen, "no server address");
         return HTTP_SOCK_NONE;
     }
 
@@ -345,7 +395,7 @@ http_sock http_sock_open(const char *host, int port, http_result *why, char *err
     return (http_sock)s;
 }
 
-int http_sock_send(http_sock s, const void *buf, unsigned len) { return (int)sceNetInetSend((int)s, buf, len, 0); }
+int port_sock_send(http_sock s, const void *buf, unsigned len) { return (int)sceNetInetSend((int)s, buf, len, 0); }
 
 /* Polled: the stack does not honour SO_RCVTIMEO consistently. 1 ms, not 10:
  * a live transcode arrives in spurts, and at 4 kB a read a 10 ms poll caps
@@ -353,7 +403,7 @@ int http_sock_send(http_sock s, const void *buf, unsigned len) { return (int)sce
  * on the same console. */
 #define RECV_STEP_US 1000u
 
-int http_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
+int port_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
     unsigned began = platform_clock_us();
 
     if (timed_out) *timed_out = 0;
@@ -373,11 +423,11 @@ int http_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
     }
 }
 
-void http_sock_close(http_sock s) {
+void port_sock_close(http_sock s) {
     if (s != HTTP_SOCK_NONE) sceNetInetClose((int)s);
 }
 
 /* The owner still closes it. */
-void http_sock_wake(http_sock s) {
+void port_sock_wake(http_sock s) {
     if (s != HTTP_SOCK_NONE) sceNetInetShutdown((int)s, 2 /* SHUT_RDWR */);
 }

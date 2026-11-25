@@ -82,14 +82,15 @@ INCDIR = src tests
 # a phony target for each header, which makes a vanished one a no-op instead.
 # POCKETFIN_CHECKS compiles in the test seams: the card fault in
 # src/base/log.h and the fakes in tools/seams.allow.
-CFLAGS  = -O2 -G0 -Wall -Wextra -Wno-unused-parameter -MMD -MP -DPOCKETFIN_CHECKS
+CFLAGS  = -O2 -G0 -Wall -Wextra -Wno-unused-parameter -MMD -MP -DPOCKETFIN_CHECKS -DPOCKETFIN_TLS
 ASFLAGS = $(CFLAGS)
 
 # pspdisplay and pspge are already linked by build.mak; naming them again gives
 # duplicate import stubs. psp-fixup-imports warns "stubs out of order" in every
 # ordering tried and the module loads and runs, so psp.sh excepts that one
 # sentence rather than turning the warning gate off.
-LIBS = -lpsppower -lpspjpeg -lpspaudio -lpspaudiocodec -lpsputility \
+# mbedTLS for HTTPS (io/secure.c), ahead of the PSP libraries it calls.
+LIBS = -lmbedtls -lmbedx509 -lmbedcrypto -lpsppower -lpspjpeg -lpspaudio -lpspaudiocodec -lpsputility \
        -lpspnet -lpspnet_apctl -lpspnet_inet -lpspnet_resolver \
        -lpspwlan -lpspgu
 
@@ -136,19 +137,7 @@ dist: $(PSP_EBOOT)
 	@cp $(PSP_EBOOT) $(DIST)/EBOOT.PBP
 	@cp LICENSE $(DIST)/LICENSE
 	@cp assets/LICENSE-Roboto $(DIST)/LICENSE-Roboto
-	@printf '%s\n' \
-	  '# Pocketfin -- your Jellyfin server. One setting per line.' \
-	  '' \
-	  '# Required. An IP address; names like jellyfin.local are not supported.' \
-	  'host: 192.168.0.2' \
-	  '' \
-	  '# 8096 unless you changed it.' \
-	  'port: 8096' \
-	  '' \
-	  '# Leave both out if your server has no sign-in.' \
-	  'user: YOUR_USERNAME' \
-	  'password: YOUR_PASSWORD' \
-	  > $(DIST)/jellyfin.txt
+	@# No jellyfin.txt: the login page asks for the server on first start.
 	@{ echo report_playback 1; echo logging 0; echo bitrate_kbps 2800; echo cpu_mhz 222; } > $(DIST)/settings.txt
 	@cd build/dist && python3 -m zipfile -c $(RELEASE) PSP
 	@echo "build/dist/PSP is ready: copy it to the root of the Memory Stick"

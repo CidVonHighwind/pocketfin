@@ -4,6 +4,7 @@
 
 #include "view/element.h"
 #include "page/home.h"
+#include "page/login.h"
 #include "port/input.h"
 #include "model/catalog.h"
 #include "io/net.h"
@@ -44,6 +45,8 @@ static void frame(ui_frame *ui, void *st) {
         /* After the drawing, so the frame that finishes the sign-in is not
            half of each page. */
         if (stage == LIB_STAGE_READY) screen_reset(&home_page_screen);
+        /* Linked, but nobody to sign in as. */
+        if (stage == LIB_STAGE_SIGNED_OUT) screen_reset(&login_page_screen);
         return;
     }
 

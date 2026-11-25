@@ -10,6 +10,7 @@
 #include "model/catalog.h"
 #include "view/page_chrome.h"
 #include "view/theme.h"
+#include "page/login.h"
 
 #include <stdio.h>
 
@@ -22,7 +23,7 @@ static const struct {
     [SETTINGS_ROW_REPORT]  = {"Report playback to server", "Marks films watched and resumes them on other clients"},
     [SETTINGS_ROW_LOG]     = {"Write a log", "Costs half a frame per line on the Memory Stick; off unless wanted"},
     [SETTINGS_ROW_CACHE]   = {"Clear image cache", "Deletes every cached poster and backdrop"},
-    [SETTINGS_ROW_SIGNIN]  = {"Sign in again", "Asks the server for a new session over this connection"},
+    [SETTINGS_ROW_SIGNIN]  = {"Sign out", "Ends this session; sign in again, or to another server"},
 };
 
 #define OPTION(row, kind, at, lo, hi) (void)ui_option(ui, (row), kRow[row].label, s->value[row], (kind), (at), (lo), (hi))
@@ -110,9 +111,10 @@ static void frame(ui_frame *ui, void *st) {
                 posters_clear();
                 snprintf(s->status, sizeof(s->status), "Freed %u KB", bytes / 1024u);
             } else if (focus_row == SETTINGS_ROW_SIGNIN) {
-                session_retry();
-                s->signing = 1;
-                snprintf(s->status, sizeof(s->status), "Signing in");
+                leave(s);
+                session_sign_out();
+                screen_reset(&login_page_screen);
+                return;
             }
         }
 
@@ -139,7 +141,7 @@ static void frame(ui_frame *ui, void *st) {
         else
             snprintf(s->value[SETTINGS_ROW_CACHE], sizeof(s->value[0]), "empty");
     }
-    snprintf(s->value[SETTINGS_ROW_SIGNIN], sizeof(s->value[0]), "%s", session_connected() ? "Signed in" : "Not signed in");
+    snprintf(s->value[SETTINGS_ROW_SIGNIN], sizeof(s->value[0]), "%s", jf_user()[0] ? jf_user() : "");
 
     if (s->signing && session_stage() != LIB_STAGE_STARTING && session_stage() != LIB_STAGE_LINKING &&
         session_stage() != LIB_STAGE_SIGNIN) {

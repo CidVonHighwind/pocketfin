@@ -151,3 +151,42 @@ void platform_picker_end(void) {}
 /* No idle timer to hold off: a desktop does not suspend under a window that
    is drawing. */
 void platform_activity_tick(void) {}
+
+/* --- the keyboard (see platform.h) ----------------------------------------
+ * No on-screen keyboard here: the console window types for it, when there is
+ * one. With none (a check run) the keyboard is simply not offered. */
+
+#include <io.h>
+
+static char g_keys_text[384];
+static int  g_keys_up;
+static int  g_keys_result;
+
+int platform_keyboard_begin(const char *title, const char *initial, unsigned max_chars) {
+    size_t n;
+
+    (void)max_chars;
+    if (g_keys_up || !_isatty(_fileno(stdin))) return -1;
+    g_keys_text[0] = 0;
+    printf("\n%s [%s]: ", title ? title : "Text", initial ? initial : "");
+    fflush(stdout);
+    if (!fgets(g_keys_text, sizeof(g_keys_text), stdin)) {
+        g_keys_result = PLATFORM_KEYS_CANCELLED;
+    } else {
+        n = strlen(g_keys_text);
+        while (n && (g_keys_text[n - 1] == '\n' || g_keys_text[n - 1] == '\r')) g_keys_text[--n] = 0;
+        if (!n && initial) snprintf(g_keys_text, sizeof(g_keys_text), "%s", initial);
+        g_keys_result = PLATFORM_KEYS_DONE;
+    }
+    g_keys_up = 1;
+    return 0;
+}
+
+platform_keys_result platform_keyboard_step(void) {
+    if (!g_keys_up) return PLATFORM_KEYS_UNAVAILABLE;
+    g_keys_up = 0;
+    return (platform_keys_result)g_keys_result;
+}
+
+int         platform_keyboard_showing(void) { return 0; }
+const char *platform_keyboard_text(void) { return g_keys_text; }

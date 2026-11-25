@@ -124,17 +124,21 @@ typedef struct {
 
 static int build_request(char *head, unsigned cap, const char *host, int port, const char *method, const char *path, const char *extra,
                          const char *body, unsigned body_len) {
-    int n, m;
+    int  n, m;
+    char at[16] = "";
 
+    /* The port only when it is not the scheme's own: a reverse proxy picks the
+       site by this header, and "name:443" is not a name it was given. */
+    if (port != (http_secure() ? 443 : 80)) snprintf(at, sizeof(at), ":%d", port);
     n = snprintf(head, cap,
                  "%s %s HTTP/1.1\r\n"
-                 "Host: %s:%d\r\n"
+                 "Host: %s%s\r\n"
                  "User-Agent: pocketfin/0.1\r\n"
                  "Accept: */*\r\n"
                  /* One exchange per socket is what makes a cut body
                     detectable at all. */
                  "Connection: close\r\n",
-                 method, path, host ? host : "?", port);
+                 method, path, host ? host : "?", at);
     if (n < 0 || (unsigned)n >= cap) return -1;
 
     if (body) {

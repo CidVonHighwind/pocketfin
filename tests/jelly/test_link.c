@@ -96,7 +96,7 @@ static int a_film(char *id, unsigned idlen, unsigned long long *run_ticks, char 
     if (!link_up(&c, why, n)) return 0;
 
     if (jf_connect() != JF_OK || jf_views(&g_rb, g_rows, JF_LIST_MAX, &views) != JF_OK || views <= 0) {
-        snprintf(why, n, "%s:%d did not answer", c.host, c.port);
+        snprintf(why, n, "%.60s:%d did not answer", c.host, c.port);
         return 0;
     }
 
