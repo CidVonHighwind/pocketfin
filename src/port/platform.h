@@ -96,4 +96,22 @@ void platform_picker_end(void);
 int  platform_has_picker(void);
 void platform_picker_offer(int somebody_is_there);
 
+
+/* The console's on-screen keyboard, run like the picker: begin() BETWEEN
+ * frames (a page's enter()), then ONE step a frame from inside an open frame,
+ * after the page has drawn what goes behind it. The text is UTF-8. */
+typedef enum {
+    PLATFORM_KEYS_RUNNING = 0, /* still up; call again next frame */
+    PLATFORM_KEYS_DONE,        /* entered: read platform_keyboard_text() */
+    PLATFORM_KEYS_CANCELLED,   /* the viewer backed out                */
+    PLATFORM_KEYS_UNAVAILABLE  /* nothing to open on this machine      */
+} platform_keys_result;
+
+/* `title` is shown above the field, `initial` is already typed. 0 when it is
+   up, -1 when there is none. */
+int                  platform_keyboard_begin(const char *title, const char *initial, unsigned max_chars);
+platform_keys_result platform_keyboard_step(void);
+int                  platform_keyboard_showing(void);
+const char          *platform_keyboard_text(void);
+
 #endif

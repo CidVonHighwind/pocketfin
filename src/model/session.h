@@ -9,7 +9,8 @@ typedef enum {
     LIB_STAGE_LINKING,
     LIB_STAGE_SIGNIN,
     LIB_STAGE_READY,
-    LIB_STAGE_STOPPED /* session_error() says why */
+    LIB_STAGE_STOPPED, /* session_error() says why */
+    LIB_STAGE_SIGNED_OUT /* linked, but no session: the login page asks */
 } lib_stage;
 
 lib_stage   session_stage(void);
@@ -20,7 +21,10 @@ int         session_connected(void);
 /* Reached once and not any more; raises the offline screen. */
 int session_lost(void);
 
-void session_retry(void); /* only asks; the worker does the work */
+void session_retry(void);
+
+/* Ends the session (Settings > Sign out); the login page comes next. */
+void session_sign_out(void); /* only asks; the worker does the work */
 int  session_wants_connect(void);
 
 /* On the catalogue's worker: DHCP alone is about three seconds. */

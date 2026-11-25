@@ -41,7 +41,7 @@ int real_library(char *note, unsigned n) {
         library_watch_link();
         library_home(&home);
         if (session_stage() == LIB_STAGE_READY && home.state == LIB_READY) break;
-        if (session_stage() == LIB_STAGE_STOPPED || platform_clock_us() - t0 > BOUND_US) {
+        if (session_stage() == LIB_STAGE_STOPPED || session_stage() == LIB_STAGE_SIGNED_OUT || platform_clock_us() - t0 > BOUND_US) {
             snprintf(note, n, "no server to ask: %s", session_error()[0] ? session_error() : "it did not answer");
             return -1;
         }

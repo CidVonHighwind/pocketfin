@@ -104,7 +104,7 @@ static int t_reaching_it_again_forgives_the_misses(char *note, unsigned n) {
 /* This text is the whole of what the boot screen tells a viewer while it
    waits. */
 static int t_every_stage_has_its_own_sentence(char *note, unsigned n) {
-    static const lib_stage all[] = {LIB_STAGE_STARTING, LIB_STAGE_LINKING, LIB_STAGE_SIGNIN, LIB_STAGE_READY, LIB_STAGE_STOPPED};
+    static const lib_stage all[] = {LIB_STAGE_STARTING, LIB_STAGE_LINKING, LIB_STAGE_SIGNIN, LIB_STAGE_READY, LIB_STAGE_STOPPED, LIB_STAGE_SIGNED_OUT};
     unsigned               i, j;
 
     for (i = 0; i < sizeof(all) / sizeof(all[0]); i++) {

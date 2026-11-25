@@ -11,7 +11,8 @@ Watch the movies and shows from your Jellyfin server on your PSP.
 ## What you need
 
 - A PSP running custom firmware, with a Memory Stick
-- A Jellyfin server on the same network
+- A Jellyfin server the PSP can reach: on the same network, or over the
+  internet through HTTPS (a reverse proxy such as Caddy or nginx)
 - Wi-Fi the PSP can join: its own firmware speaks only WEP and WPA/TKIP, so
   WPA2 (AES) needs [ARK-4](https://github.com/PSP-Archive/ARK-4), which now
   has it built in, and a 2.4 GHz band either way
@@ -19,14 +20,33 @@ Watch the movies and shows from your Jellyfin server on your PSP.
 ## Install
 
 1. Copy the `PSP` folder to the root of the Memory Stick. It holds `PSP/GAME/pocketfin`.
-2. Open `jellyfin.txt` inside it and fill in your server:
+2. Start Pocketfin. The **Sign in** page asks for:
+   - **Server**: an IP address or a name (`jellyfin.example.com`). A pasted
+     `https://name:port/...` address fills in the port and HTTPS for you.
+   - **Port** and **HTTPS**: 8096 and off on the home network; usually 443
+     and on through a reverse proxy.
+3. Sign in with **Quick Connect** (the PSP shows a code; approve it from a
+   signed-in Jellyfin app or the web page, under your profile) or with a user
+   name and password on the console's keyboard.
 
-   ```
-   host: 192.168.0.2
-   port: 8096
-   user: alice
-   password: hunter2
-   ```
+Pocketfin keeps the server and the session token in `account.txt`, never the
+password. **Settings > Sign out** ends the session, to sign in again or to
+another server.
+
+An existing `jellyfin.txt` (`host`, `port`, `user`, `password`, and now
+`https: yes`) still works: it signs in once and the session moves to
+`account.txt`, after which the password line can be deleted.
+
+### HTTPS notes
+
+- The certificate must chain to a well-known authority (Let's Encrypt,
+  ZeroSSL, Google, DigiCert, GlobalSign, Sectigo); its dates are not checked,
+  because the console's clock is rarely set.
+- The first connection does a full TLS handshake (about a second on the
+  console); later ones resume that session, so the reverse proxy should allow
+  TLS session resumption (nginx, Caddy and Traefik do by default).
+- Cloudflare Tunnel works technically, but Cloudflare's terms do not allow
+  streaming video through its free plan.
 
 ## Building
 

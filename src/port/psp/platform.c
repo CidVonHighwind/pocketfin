@@ -491,3 +491,141 @@ platform_picker_result platform_picker_step(void) {
 }
 
 void platform_activity_tick(void) { scePowerTick(0); }
+
+/* --- the on-screen keyboard (see platform.h) ------------------------------ */
+
+#include <psputility_osk.h>
+
+#define KEYS_MAX 128
+
+static SceUtilityOskData   g_osk_data;
+static SceUtilityOskParams g_osk;
+static unsigned short      g_osk_desc[64], g_osk_in[KEYS_MAX], g_osk_out[KEYS_MAX];
+static char                g_keys_text[KEYS_MAX * 3];
+static int                 g_keys_up, g_keys_shown;
+static unsigned            g_keys_frames;
+
+/* It is on screen within a few frames when it works. */
+#define KEYS_APPEAR_FRAMES 180
+
+static void to_ucs2(const char *s, unsigned short *o, unsigned cap) {
+    unsigned n = 0;
+
+    while (s && *s && n + 1 < cap) {
+        unsigned char c = (unsigned char)*s;
+
+        if (c < 0x80) {
+            o[n++] = c;
+            s++;
+        } else if ((c >> 5) == 6 && s[1]) {
+            o[n++] = (unsigned short)(((c & 0x1F) << 6) | (s[1] & 0x3F));
+            s += 2;
+        } else if ((c >> 4) == 14 && s[1] && s[2]) {
+            o[n++] = (unsigned short)(((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F));
+            s += 3;
+        } else {
+            s++;
+        }
+    }
+    o[n] = 0;
+}
+
+static void to_utf8(const unsigned short *u, char *o, unsigned cap) {
+    unsigned n = 0;
+
+    for (; *u && n + 4 < cap; u++) {
+        unsigned cp = *u;
+
+        if (cp < 0x80) o[n++] = (char)cp;
+        else if (cp < 0x800) {
+            o[n++] = (char)(0xC0 | (cp >> 6));
+            o[n++] = (char)(0x80 | (cp & 0x3F));
+        } else {
+            o[n++] = (char)(0xE0 | (cp >> 12));
+            o[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            o[n++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    o[n] = 0;
+}
+
+int platform_keyboard_begin(const char *title, const char *initial, unsigned max_chars) {
+    int rc;
+
+    /* One system dialog at a time: the kernel refuses a second. */
+    if (g_keys_up || g_picker_up) return -1;
+    if (!max_chars || max_chars >= KEYS_MAX) max_chars = KEYS_MAX - 1;
+    to_ucs2(title, g_osk_desc, 64);
+    to_ucs2(initial, g_osk_in, KEYS_MAX);
+    memset(g_osk_out, 0, sizeof(g_osk_out));
+    g_keys_text[0] = 0;
+
+    memset(&g_osk_data, 0, sizeof(g_osk_data));
+    g_osk_data.language      = PSP_UTILITY_OSK_LANGUAGE_DEFAULT;
+    g_osk_data.lines         = 1;
+    g_osk_data.unk_24        = 1;
+    g_osk_data.inputtype     = PSP_UTILITY_OSK_INPUTTYPE_ALL;
+    g_osk_data.desc          = g_osk_desc;
+    g_osk_data.intext        = g_osk_in;
+    g_osk_data.outtextlength = max_chars;
+    g_osk_data.outtextlimit  = max_chars;
+    g_osk_data.outtext       = g_osk_out;
+
+    memset(&g_osk, 0, sizeof(g_osk));
+    g_osk.base.size           = sizeof(g_osk);
+    g_osk.base.language       = PSP_SYSTEMPARAM_LANGUAGE_ENGLISH;
+    g_osk.base.buttonSwap     = PSP_UTILITY_ACCEPT_CROSS;
+    g_osk.base.graphicsThread = 17;
+    g_osk.base.accessThread   = 19;
+    g_osk.base.fontThread     = 18;
+    g_osk.base.soundThread    = 16;
+    g_osk.datacount           = 1;
+    g_osk.data                = &g_osk_data;
+
+    rc = sceUtilityOskInitStart(&g_osk);
+    if (rc < 0) {
+        log_printf("keys: the console would not open its keyboard (0x%08X)", (unsigned)rc);
+        return -1;
+    }
+    g_keys_up     = 1;
+    g_keys_shown  = 0;
+    g_keys_frames = 0;
+    return 0;
+}
+
+int platform_keyboard_showing(void) { return g_keys_up && g_keys_shown; }
+
+const char *platform_keyboard_text(void) { return g_keys_text; }
+
+platform_keys_result platform_keyboard_step(void) {
+    int status;
+
+    if (!g_keys_up) return PLATFORM_KEYS_UNAVAILABLE;
+    status = sceUtilityOskGetStatus();
+    if (!g_keys_shown && ++g_keys_frames > KEYS_APPEAR_FRAMES) {
+        log_printf("keys: the keyboard never appeared (status %d)", status);
+        sceUtilityOskShutdownStart();
+        g_keys_up = 0;
+        return PLATFORM_KEYS_UNAVAILABLE;
+    }
+    switch (status) {
+    case PSP_UTILITY_DIALOG_VISIBLE:
+        g_keys_shown = 1;
+        /* Outside our list, as the picker: it runs its own. */
+        gfx_list_suspend();
+        sceUtilityOskUpdate(1);
+        return PLATFORM_KEYS_RUNNING;
+    case PSP_UTILITY_DIALOG_QUIT: sceUtilityOskShutdownStart(); return PLATFORM_KEYS_RUNNING;
+    case PSP_UTILITY_DIALOG_FINISHED: return PLATFORM_KEYS_RUNNING; /* still letting go */
+    case PSP_UTILITY_DIALOG_NONE:
+        if (!g_keys_shown) return PLATFORM_KEYS_RUNNING; /* not up yet */
+        g_keys_up = 0;
+        if (g_osk_data.result == PSP_UTILITY_OSK_RESULT_CHANGED || g_osk_data.result == PSP_UTILITY_OSK_RESULT_UNCHANGED) {
+            to_utf8(g_osk_out, g_keys_text, sizeof(g_keys_text));
+            return PLATFORM_KEYS_DONE;
+        }
+        return PLATFORM_KEYS_CANCELLED;
+    default: return PLATFORM_KEYS_RUNNING; /* INIT */
+    }
+}
+

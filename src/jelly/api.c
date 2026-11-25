@@ -11,7 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define CONN_FILE "jellyfin.txt"
+#define CONN_FILE    "jellyfin.txt"
+#define ACCOUNT_FILE "account.txt"
 
 static jf_conn        g_conn;
 static char           g_device[JF_ID_LEN];
@@ -20,6 +21,10 @@ static char           g_token[JF_TOKEN_LEN];
 static char           g_user_id[JF_ID_LEN];
 static char           g_server_name[JF_NAME_LEN];
 static platform_lock *g_lock;
+/* Signed in from jellyfin.txt, whose user and password stay in g_conn: a
+   refused token may be replaced by signing in again. A session from the login
+   page has no password kept, so its end is the viewer's to know about. */
+static int            g_can_resign;
 
 static platform_lock *lock(void) {
     if (!g_lock) g_lock = platform_lock_new("jellyfin");
@@ -44,6 +49,9 @@ static jf_err err_from_status(int status) {
     if (status == 404) return JF_ERR_MISSING;
     return JF_ERR_SERVER;
 }
+
+static jf_err take_auth_reply(const char *body);
+static jf_err exchange(jf_buf *b, const char *method, const char *path, const char *body, int ok, http_resp *r);
 
 static jf_err err_from_result(http_result rc, int status) {
     if (rc == HTTP_NO_LINK || rc == HTTP_NO_HOST || rc == HTTP_NO_REPLY) return JF_ERR_OFFLINE;
@@ -150,6 +158,8 @@ int jf_conn_parse(const char *text, jf_conn *c, const char *path) {
             put(c->user, sizeof(c->user), value, "user", path);
         } else if (named(name, "password") || named(name, "pass")) {
             put(c->pass, sizeof(c->pass), value, "password", path);
+        } else if (named(name, "https") || named(name, "secure")) {
+            c->https = named(value, "yes") || named(value, "on") || named(value, "true") || named(value, "1");
         } else if (named(name, "profile")) {
             c->profile = atoi(value);
         } else {
@@ -206,6 +216,7 @@ int jf_load_conn(jf_conn *c) {
 void jf_use(const jf_conn *c) {
     platform_lock_take(lock());
     g_conn = *c;
+    http_set_secure(c->https, c->host);
     /* Signing in revokes the token of anything else using the same id: a
        desktop build sharing the console's killed its film. */
     snprintf(g_device, sizeof(g_device), "%s", platform_cpu_mhz() ? "pocketfin-psp" : "pocketfin-dev");
@@ -242,12 +253,19 @@ static jf_err sign_in(void) {
     /* 3,040 B measured. Static memory here is usbhostfs's: see the heap note
        in shell/psp/main.c. */
     static char reply[8 * 1024];
-    char        hdr[256], body[128], token[JF_TOKEN_LEN], user_id[JF_ID_LEN];
+    char        hdr[256], body[384];
     http_resp   r;
     http_result rc;
 
     auth_header("", hdr, sizeof(hdr));
-    snprintf(body, sizeof(body), "{\"Username\":\"%s\",\"Pw\":\"%s\"}", g_conn.user, g_conn.pass);
+    {
+        char u[JF_USER_LEN * 2], p[JF_PASS_LEN * 2];
+
+        jf_json_escape(g_conn.user, u, sizeof(u));
+        jf_json_escape(g_conn.pass, p, sizeof(p));
+        snprintf(body, sizeof(body), "{\"Username\":\"%s\",\"Pw\":\"%s\"}", u, p);
+        memset(p, 0, sizeof(p));
+    }
     rc = http_request(g_conn.host, g_conn.port, "POST", "/Users/AuthenticateByName", hdr, body, reply, sizeof(reply), &r);
     memset(body, 0, sizeof(body));
 
@@ -259,14 +277,7 @@ static jf_err sign_in(void) {
         log_printf("jellyfin: sign in -- HTTP %d", r.status);
         return err_from_status(r.status);
     }
-    /* The first "Id" is the User's. */
-    if (json_str(r.body, "AccessToken", token, sizeof(token)) != 0 || json_str(r.body, "Id", user_id, sizeof(user_id)) != 0) {
-        log_line("jellyfin: the sign-in reply carried no token or user");
-        return JF_ERR_GARBLED;
-    }
-    memcpy(g_token, token, sizeof(g_token));
-    memcpy(g_user_id, user_id, sizeof(g_user_id));
-    (void)json_str(r.body, "ServerName", g_server_name, sizeof(g_server_name));
+    if (take_auth_reply(r.body) != JF_OK) return JF_ERR_GARBLED;
     log_printf("jellyfin: signed in, token %u chars", (unsigned)strlen(g_token));
     return JF_OK;
 }
@@ -275,7 +286,8 @@ jf_err jf_connect(void) {
     jf_err e;
 
     platform_lock_take(lock());
-    e = sign_in();
+    g_can_resign = 1;
+    e            = sign_in();
     platform_lock_give(lock());
     return e;
 }
@@ -285,10 +297,255 @@ jf_err jf_reauth(const char *refused) {
 
     platform_lock_take(lock());
     if (strstr(refused, g_token)) {
-        log_line("jellyfin: the token was refused -- signing in again");
-        e = sign_in();
+        if (!g_can_resign) {
+            /* Signed in from the application: no password is kept to sign in
+               with, so the viewer has to. */
+            log_line("jellyfin: the token was refused -- the session has ended");
+            e = JF_ERR_AUTH;
+        } else {
+            log_line("jellyfin: the token was refused -- signing in again");
+            e = sign_in();
+        }
     }
     platform_lock_give(lock());
+    return e;
+}
+
+void jf_json_escape(const char *in, char *out, unsigned cap) {
+    unsigned o = 0;
+
+    if (!cap) return;
+    for (; in && *in; in++) {
+        unsigned char ch = (unsigned char)*in;
+        char          esc[8];
+        unsigned      k, len;
+
+        if (ch == '"' || ch == '\\') {
+            esc[0] = '\\';
+            esc[1] = (char)ch;
+            len    = 2;
+        } else if (ch < 0x20) {
+            len = (unsigned)snprintf(esc, sizeof(esc), "\\u%04x", ch);
+        } else {
+            esc[0] = (char)ch;
+            len    = 1;
+        }
+        if (o + len >= cap) break;
+        for (k = 0; k < len; k++) out[o++] = esc[k];
+    }
+    out[o] = 0;
+}
+
+/* --- account.txt ---------------------------------------------------------- */
+
+int jf_account_parse(const char *text, jf_conn *c, char *token, unsigned token_len, char *user_id, unsigned uid_len) {
+    char line[256];
+
+    if (!text || !c) return -1;
+    memset(c, 0, sizeof(*c));
+    c->port = 8096;
+    if (token && token_len) token[0] = 0;
+    if (user_id && uid_len) user_id[0] = 0;
+    while (*text) {
+        const char *eol = strchr(text, '\n');
+        unsigned    len = eol ? (unsigned)(eol - text) : (unsigned)strlen(text);
+        char       *value;
+
+        if (len >= sizeof(line)) len = sizeof(line) - 1;
+        memcpy(line, text, len);
+        line[len] = 0;
+        text += eol ? (unsigned)(eol - text) + 1 : len;
+        trim(line);
+        value = strchr(line, ':');
+        if (!value || line[0] == '#') continue;
+        *value++ = 0;
+        trim(line);
+        trim(value);
+        if (named(line, "host")) snprintf(c->host, sizeof(c->host), "%s", value);
+        else if (named(line, "port")) c->port = atoi(value);
+        else if (named(line, "https")) c->https = atoi(value) != 0;
+        else if (named(line, "user")) snprintf(c->user, sizeof(c->user), "%s", value);
+        else if (named(line, "user_id") && user_id) snprintf(user_id, uid_len, "%s", value);
+        else if (named(line, "token") && token) snprintf(token, token_len, "%s", value);
+    }
+    if (!c->host[0] || c->port <= 0 || c->port > 65535) return -1;
+    return 0;
+}
+
+static void account_path(char *out, unsigned n) { snprintf(out, n, "%s%s", platform_data_dir(), ACCOUNT_FILE); }
+
+int jf_load_account(jf_conn *c, int *has_token) {
+    char     path[160], text[1024], token[JF_TOKEN_LEN], uid[JF_ID_LEN];
+
+    if (has_token) *has_token = 0;
+    account_path(path, sizeof(path));
+    if (!read_file(path, text, sizeof(text))) return -1;
+    if (jf_account_parse(text, c, token, sizeof(token), uid, sizeof(uid)) != 0) {
+        log_printf("jellyfin: %s names no server", path);
+        return -1;
+    }
+    memset(text, 0, sizeof(text));
+    jf_use(c);
+    platform_lock_take(lock());
+    g_can_resign = 0;
+    snprintf(g_token, sizeof(g_token), "%s", token);
+    snprintf(g_user_id, sizeof(g_user_id), "%s", (token[0] && uid[0]) ? uid : "");
+    platform_lock_give(lock());
+    if (has_token) *has_token = token[0] && uid[0];
+    log_printf("jellyfin: account %s%s:%d, %s", c->https ? "https://" : "", c->host, c->port, token[0] ? "with a session" : "signed out");
+    return 0;
+}
+
+int jf_save_account(void) {
+    char  path[160];
+    FILE *f;
+
+    account_path(path, sizeof(path));
+    f = fopen(path, "wb");
+    if (!f) {
+        log_printf("jellyfin: cannot write %s", path);
+        return -1;
+    }
+    platform_lock_take(lock());
+    fprintf(f,
+            "# Written by Pocketfin: the server and the session it handed out.\n"
+            "# Delete this file to sign out. It holds no password.\n"
+            "host: %s\nport: %d\nhttps: %d\nuser: %s\nuser_id: %s\ntoken: %s\n",
+            g_conn.host, g_conn.port, g_conn.https, g_conn.user, g_user_id, g_token);
+    platform_lock_give(lock());
+    fclose(f);
+    return 0;
+}
+
+void jf_forget_session(void) {
+    platform_lock_take(lock());
+    memset(g_token, 0, sizeof(g_token));
+    memset(g_user_id, 0, sizeof(g_user_id));
+    memset(g_conn.pass, 0, sizeof(g_conn.pass));
+    g_can_resign = 0;
+    platform_lock_give(lock());
+    (void)jf_save_account();
+    log_line("jellyfin: signed out");
+}
+
+/* Takes the AccessToken and user out of an AuthenticationResult. Caller holds
+   the lock. */
+static jf_err take_auth_reply(const char *body) {
+    char        token[JF_TOKEN_LEN], user_id[JF_ID_LEN], name[JF_USER_LEN];
+    const char *user = strstr(body, "\"User\"");
+
+    if (json_str(body, "AccessToken", token, sizeof(token)) != 0 || !user || json_str(user, "Id", user_id, sizeof(user_id)) != 0) {
+        log_line("jellyfin: the sign-in reply carried no token or user");
+        return JF_ERR_GARBLED;
+    }
+    memcpy(g_token, token, sizeof(g_token));
+    memcpy(g_user_id, user_id, sizeof(g_user_id));
+    if (json_str(user, "Name", name, sizeof(name)) == 0) snprintf(g_conn.user, sizeof(g_conn.user), "%s", name);
+    (void)json_str(body, "ServerName", g_server_name, sizeof(g_server_name));
+    return JF_OK;
+}
+
+/* A request with no token, for the sign-in calls. */
+static jf_err anonymous(const char *method, const char *path, const char *body, char *reply, unsigned cap, http_resp *r) {
+    char        hdr[256];
+    http_result rc;
+
+    auth_header("", hdr, sizeof(hdr));
+    rc = http_request(g_conn.host, g_conn.port, method, path, hdr, body, reply, cap, r);
+    if (rc != HTTP_OK) {
+        log_printf("jellyfin: %s -- %s%s%s", path, http_result_text(rc), r->err[0] ? ", " : "", r->err);
+        return err_from_result(rc, r->status);
+    }
+    if (r->status != 200) {
+        log_printf("jellyfin: %s -- HTTP %d", path, r->status);
+        return err_from_status(r->status);
+    }
+    return JF_OK;
+}
+
+jf_err jf_sign_in(const char *user, const char *pass) {
+    jf_err e;
+
+    platform_lock_take(lock());
+    snprintf(g_conn.user, sizeof(g_conn.user), "%s", user ? user : "");
+    snprintf(g_conn.pass, sizeof(g_conn.pass), "%s", pass ? pass : "");
+    e = sign_in();
+    memset(g_conn.pass, 0, sizeof(g_conn.pass)); /* the token is what stays */
+    g_can_resign = 0;
+    platform_lock_give(lock());
+    if (e == JF_OK) (void)jf_save_account();
+    return e;
+}
+
+jf_err jf_check_session(void) {
+    static char reply[8 * 1024];
+    http_resp   r;
+    jf_err      e;
+    char        name[JF_USER_LEN];
+    jf_buf      b = JF_BUF(reply);
+
+    e = exchange(&b, "GET", "/Users/Me", 0, 0, &r);
+    if (e != JF_OK) return e;
+    if (json_str(r.body, "Name", name, sizeof(name)) == 0) {
+        platform_lock_take(lock());
+        snprintf(g_conn.user, sizeof(g_conn.user), "%s", name);
+        platform_lock_give(lock());
+    }
+    {
+        /* The server's name, as the password sign-in reply would have given. */
+        static char info[2048];
+        http_resp   ri;
+
+        if (anonymous("GET", "/System/Info/Public", 0, info, sizeof(info), &ri) == JF_OK)
+            (void)json_str(ri.body, "ServerName", g_server_name, sizeof(g_server_name));
+    }
+    return JF_OK;
+}
+
+jf_err jf_quick_connect_begin(char *code, unsigned code_len, char *secret, unsigned secret_len) {
+    static char reply[2048];
+    http_resp   r;
+    jf_err      e = anonymous("POST", "/QuickConnect/Initiate", "", reply, sizeof(reply), &r);
+
+    if (e == JF_ERR_MISSING || (e == JF_ERR_SERVER && r.status == 401)) {
+        log_line("jellyfin: Quick Connect is switched off on this server");
+        return JF_ERR_MISSING;
+    }
+    if (e != JF_OK) return e;
+    if (json_str(r.body, "Code", code, code_len) != 0 || json_str(r.body, "Secret", secret, secret_len) != 0) return JF_ERR_GARBLED;
+    return JF_OK;
+}
+
+jf_err jf_quick_connect_check(const char *secret, int *approved) {
+    static char reply[2048];
+    char        path[JF_QC_SECRET_LEN + 40];
+    http_resp   r;
+    jf_err      e;
+
+    *approved = 0;
+    snprintf(path, sizeof(path), "/QuickConnect/Connect?secret=%s", secret);
+    e = anonymous("GET", path, 0, reply, sizeof(reply), &r);
+    if (e != JF_OK) return e;
+    *approved = json_bool_in(r.body, strlen(r.body), "Authenticated", 0);
+    return JF_OK;
+}
+
+jf_err jf_quick_connect_finish(const char *secret) {
+    static char reply[8 * 1024];
+    char        body[JF_QC_SECRET_LEN + 24];
+    http_resp   r;
+    jf_err      e;
+
+    snprintf(body, sizeof(body), "{\"Secret\":\"%s\"}", secret);
+    platform_lock_take(lock());
+    e = anonymous("POST", "/Users/AuthenticateWithQuickConnect", body, reply, sizeof(reply), &r);
+    if (e == JF_OK) e = take_auth_reply(r.body);
+    if (e == JF_OK) g_can_resign = 0;
+    platform_lock_give(lock());
+    if (e == JF_OK) {
+        log_printf("jellyfin: signed in with Quick Connect, token %u chars", (unsigned)strlen(g_token));
+        (void)jf_save_account();
+    }
     return e;
 }
 

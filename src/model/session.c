@@ -67,6 +67,7 @@ const char *session_stage_text(lib_stage s) {
     case LIB_STAGE_SIGNIN: return "Signing in";
     case LIB_STAGE_READY: return "Connected";
     case LIB_STAGE_STOPPED: return "Stopped";
+    case LIB_STAGE_SIGNED_OUT: return "Sign in";
     default: return "Starting";
     }
 }
@@ -95,17 +96,23 @@ int session_wants_connect(void) {
 void session_connect(void) {
     jf_conn conn;
     jf_err  e;
-    int     profile, rc;
+    int     profile, rc, has_token = 0, have_server = 0, legacy = 0;
     char    ip[24];
 
     g_link_sent_us = platform_clock_us();
     g_stage        = LIB_STAGE_LINKING;
 
-    if (jf_load_conn(&conn) != 0) {
-        session_note_stopped("There is no connection file. Put jellyfin.txt beside the program, with a line reading: host 192.168.0.2");
-        return;
+    /* account.txt (signed in from the login page) first; a hand-written
+       jellyfin.txt with a password still works, and is moved over to a
+       session once it signs in. */
+    memset(&conn, 0, sizeof(conn));
+    if (jf_load_account(&conn, &has_token) == 0) {
+        have_server = 1;
+    } else if (jf_load_conn(&conn) == 0) {
+        jf_use(&conn);
+        have_server = 1;
+        legacy      = conn.pass[0] != 0 || conn.user[0] != 0;
     }
-    jf_use(&conn);
     /* net_profile() is 0 until the viewer picks, which sends start-up to the
        dialog; after that a wake rejoins without asking. */
     profile = conn.profile > 0 ? conn.profile : net_profile();
@@ -131,8 +138,22 @@ void session_connect(void) {
     }
     log_printf("session: linked on connection %d, %s", net_profile(), net_address()[0] ? net_address() : "no address");
 
+    if (!have_server || (!has_token && !legacy)) {
+        /* Nothing to sign in with: the viewer does it on the login page. */
+        set_error("");
+        g_stage = LIB_STAGE_SIGNED_OUT;
+        return;
+    }
+
     g_stage = LIB_STAGE_SIGNIN;
-    e       = jf_connect();
+    e       = has_token ? jf_check_session() : jf_connect();
+    if (e == JF_ERR_AUTH && has_token) {
+        log_line("session: the saved session has ended -- signing in again");
+        jf_forget_session();
+        set_error("The saved session has ended. Sign in again.");
+        g_stage = LIB_STAGE_SIGNED_OUT;
+        return;
+    }
     if (e != JF_OK) {
         char why[SESSION_ERR_MAX];
 
@@ -140,6 +161,8 @@ void session_connect(void) {
         session_note_stopped(why);
         return;
     }
+    if (!has_token && jf_save_account() == 0)
+        log_line("session: jellyfin.txt signed in; the session is now in account.txt -- the password line can go");
 
     set_error("");
     session_note_reached();
@@ -150,12 +173,12 @@ void session_connect(void) {
    for a mistyped password as for a token that expired. */
 void session_sign_in_text(jf_err e, const char *address, char *out, unsigned n) {
     switch (e) {
-    case JF_ERR_AUTH: snprintf(out, n, "The server refused the user name or password in jellyfin.txt."); break;
+    case JF_ERR_AUTH: snprintf(out, n, "The server refused the user name or password."); break;
     case JF_ERR_OFFLINE:
-        snprintf(out, n, "Nothing answered at %s. Check the host and port in jellyfin.txt, and that the server is running.", address);
+        snprintf(out, n, "Nothing answered at %s. Check the server address and port, and that the server is running.", address);
         break;
     case JF_ERR_MISSING:
-    case JF_ERR_GARBLED: snprintf(out, n, "Something answered at %s, but not Jellyfin. Check the port in jellyfin.txt.", address); break;
+    case JF_ERR_GARBLED: snprintf(out, n, "Something answered at %s, but not Jellyfin. Check the port, and HTTPS.", address); break;
     default: snprintf(out, n, "The server at %s could not sign in. Its own log says why.", address); break;
     }
 }
@@ -163,6 +186,13 @@ void session_sign_in_text(jf_err e, const char *address, char *out, unsigned n) 
 void session_note_stopped(const char *why) {
     set_error(why);
     g_stage = LIB_STAGE_STOPPED;
+}
+
+void session_sign_out(void) {
+    jf_forget_session();
+    set_error("");
+    g_connected = 0;
+    g_stage     = LIB_STAGE_SIGNED_OUT;
 }
 
 void session_note_no_choice(void) { session_note_stopped("No connection was chosen. Try again and pick one from the list."); }

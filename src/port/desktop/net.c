@@ -2,6 +2,7 @@
  * the link is up before anything asks. */
 
 #include "io/http.h"
+#include "io/sock.h"
 #include "io/net.h"
 #include "io/net_private.h"
 
@@ -147,7 +148,7 @@ static void slow_report(void) {
     log_printf("net: %u connections, %u KB, %u ms of pretending", g_conns, g_bytes / 1024u, g_slept_us / 1000u);
 }
 
-http_sock http_sock_open(const char *host, int port, http_result *why, char *err, unsigned errlen) {
+http_sock port_sock_open(const char *host, int port, http_result *why, char *err, unsigned errlen) {
     struct addrinfo hints, *res = 0;
     char            service[16];
     SOCKET          s;
@@ -238,9 +239,9 @@ http_sock http_sock_open(const char *host, int port, http_result *why, char *err
     return (http_sock)s;
 }
 
-int http_sock_send(http_sock s, const void *buf, unsigned len) { return send((SOCKET)s, (const char *)buf, (int)len, 0); }
+int port_sock_send(http_sock s, const void *buf, unsigned len) { return send((SOCKET)s, (const char *)buf, (int)len, 0); }
 
-int http_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
+int port_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
     int n;
 
     if (timed_out) *timed_out = 0;
@@ -261,7 +262,7 @@ int http_sock_recv(http_sock s, void *buf, unsigned len, int *timed_out) {
     return n;
 }
 
-void http_sock_close(http_sock s) {
+void port_sock_close(http_sock s) {
     if (s == HTTP_SOCK_NONE) return;
     slow_forget((SOCKET)s);
     closesocket((SOCKET)s);
@@ -269,6 +270,6 @@ void http_sock_close(http_sock s) {
 
 /* shutdown() both ways ends a recv another thread is blocked in and leaves the
    descriptor for its owner to close. */
-void http_sock_wake(http_sock s) {
+void port_sock_wake(http_sock s) {
     if (s != HTTP_SOCK_NONE) shutdown((SOCKET)s, SD_BOTH);
 }
