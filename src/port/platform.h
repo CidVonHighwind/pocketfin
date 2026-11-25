@@ -59,6 +59,10 @@ void platform_note_quit(void);
  * film is two hours of not pressing anything. A no-op on a desktop. */
 void platform_activity_tick(void);
 
+/* Holds off only the sleep timer: music plays on with the screen untouched, and
+ * the console's Backlight Auto-Off still turns the light out. */
+void platform_keep_awake(void);
+
 /* The console's own network chooser: the profiles are the firmware's, so no
  * network credential passes through this application.
  *

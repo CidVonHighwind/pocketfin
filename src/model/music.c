@@ -131,6 +131,8 @@ static int sink(const unsigned char *data, unsigned len, void *user) {
             }
             (void)audio_play(c->buf + at + hlen, flen - hlen);
             c->frames++;
+            /* About once a second: an album is an hour of not pressing anything. */
+            if ((c->frames % 43u) == 0) platform_keep_awake();
             at += flen;
 
             platform_lock_take(lock());
