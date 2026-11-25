@@ -115,6 +115,12 @@ static play_clock g_clock;
 static stream_stats g_stats;
 static unsigned     g_demux_us, g_demux_n;
 static unsigned     g_decode_us, g_decode_n;
+
+/* Pacing, measured: refreshes each picture stayed up, and every break in the
+   2-3 rhythm a 23.976 film should keep on 59.94, logged with what decided it.
+   Regular pictures and a hitch still seen means the hitch is in the video. */
+static unsigned g_pace_held, g_pace_prev, g_pace_breaks, g_pace_shown, g_pace_logged, g_last_decode_us;
+#define PACE_LOG_MAX 60
 static unsigned     g_open_us, g_first_us;
 static unsigned     g_stall_at; /* 0 while the clock is running */
 /* The sound is the clock only while the picture side is there to follow it:
@@ -539,6 +545,7 @@ int stream_open(const char *item_id, unsigned long long from, unsigned long long
     g_audio_on   = 0;
     g_demux_us = g_demux_n = 0;
     g_decode_us = g_decode_n = 0;
+    g_pace_held = g_pace_prev = g_pace_breaks = g_pace_shown = g_pace_logged = 0;
     g_opened = g_ended = g_failed = 0;
     g_from      = from;
     g_run_ticks   = run_ticks;
@@ -579,6 +586,9 @@ void stream_stop(void) {
 }
 
 void stream_close(void) {
+    if (g_pace_shown)
+        log_printf("pace: %u of %u pictures off the 2-3 rhythm (%u.%u%%)", g_pace_breaks, g_pace_shown, g_pace_breaks * 100u / g_pace_shown,
+                   (g_pace_breaks * 1000u / g_pace_shown) % 10u);
     /* The workers must be OUT of a pass first: tearing down under them reset
        the ring counts while take_sample was mid-write, the unsigned difference
        wrapped, and the next memcpy landed outside the ring. */
@@ -651,6 +661,7 @@ int stream_frame(stream_picture *out, int paused) {
     }
 
     /* Once a frame, only here. */
+    if (play_clock_running(&g_clock)) g_pace_held++;
     play_clock_step(&g_clock, platform_clock_us());
     if (g_audio_on && sound_us) play_clock_follow(&g_clock, sound_at, platform_clock_us() - sound_us);
     play_view_step(&g_view, &g_clock, platform_clock_us());
@@ -670,7 +681,8 @@ int stream_frame(stream_picture *out, int paused) {
         unsigned t0 = platform_clock_us();
 
         got = decode_sample(g_video.buf + (unsigned)(r.abs % g_video.cap), r.len, &pic);
-        g_decode_us += platform_clock_us() - t0;
+        g_last_decode_us = platform_clock_us() - t0;
+        g_decode_us += g_last_decode_us;
         g_decode_n++;
     }
     /* The decoder copies what it is sent. */
@@ -693,6 +705,23 @@ int stream_frame(stream_picture *out, int paused) {
         g_first_us  = platform_clock_us();
     }
     if (r.at + ITEM_TICKS_PER_S / 10ull < elapsed()) g_stats.late++;
+
+    /* Ticks are 0.1 us: /10 is microseconds. */
+    if (g_first_us && g_pace_prev) {
+        unsigned stayed = g_pace_held;
+
+        g_pace_shown++;
+        if (stayed == g_pace_prev || stayed < 2 || stayed > 3) {
+            g_pace_breaks++;
+            if (g_pace_logged++ < PACE_LOG_MAX)
+                log_printf("pace: held %u after %u | picture-view %+d us | view-clock %+d us | sound %u us old | decode %u us", stayed,
+                           g_pace_prev, (int)((long long)(r.at - play_view_pos(&g_view)) / 10),
+                           (int)((long long)(play_view_pos(&g_view) - elapsed()) / 10), sound_us ? platform_clock_us() - sound_us : 0u,
+                           g_last_decode_us);
+        }
+    }
+    g_pace_prev = g_pace_held ? g_pace_held : 1;
+    g_pace_held = 0;
 
     out->w  = pic.w;
     out->h  = pic.h;

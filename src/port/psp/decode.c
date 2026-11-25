@@ -25,6 +25,8 @@
 #include <pspge.h>
 #include <pspkernel.h>
 
+#include <malloc.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -46,6 +48,18 @@ static int   g_next;               /* the one being composed         */
 static int   g_shown = -1;
 
 static int  g_w, g_h;
+
+/* The engine runs two pictures behind what it is fed, and a keyframe flushes:
+   it hands back the two it held and its own at once, then two calls return
+   nothing while it fills again. With one destination the two flushed
+   pictures were overwritten -- two frames lost and a freeze at every segment,
+   once a second. Two more destinations, in main memory (video memory is
+   full), keep them; they are shown on the calls that return nothing. */
+#define KEEP_N 2
+static void *g_keep[KEEP_N];   /* uncached; NULL if they could not be had */
+static void *g_cur;            /* the picture decode_blit copies          */
+static void *g_pend[KEEP_N];   /* flushed pictures still to be shown      */
+static int   g_npend, g_kept_logs;
 static int  g_first; /* the opening frame is decoded in its own mode */
 static int  g_panel; /* the surfaces are ours, with or without a codec */
 static char g_err[128];
@@ -125,6 +139,28 @@ int decode_open(const unsigned char *sps, unsigned sps_len, const unsigned char 
     g_h      = src_h;
     g_first  = 1;
     g_open   = 1;
+    g_cur    = g_dec;
+    g_npend  = 0;
+    if (!g_keep[0]) {
+        int k;
+
+        for (k = 0; k < KEEP_N; k++) {
+            void *p = memalign(64, DEC_BYTES);
+
+            if (!p) break;
+            /* Written back now and never touched by the processor again, so no
+               cache line can land on what the engine writes. */
+            sceKernelDcacheWritebackInvalidateRange(p, DEC_BYTES);
+            g_keep[k] = (void *)((uintptr_t)p | 0x40000000u);
+        }
+        if (k < KEEP_N) {
+            log_printf("decode: no room to keep flushed pictures -- a keyframe will drop two");
+            for (; k > 0; k--) {
+                free((void *)((uintptr_t)g_keep[k - 1] & ~(uintptr_t)0x40000000u));
+                g_keep[k - 1] = 0;
+            }
+        }
+    }
     log_printf("decode: media engine, %dx%d 8888, video memory %u of %u", g_w, g_h, DEC_BYTES + DISPLAY_N * DISP_BYTES,
                (unsigned)sceGeEdramGetSize());
     return 0;
@@ -136,9 +172,11 @@ int decode_sample(const unsigned char *data, unsigned len, decode_picture *out) 
 
     if (!g_open || !out) return -1;
 
-    /* One destination four times: an IDR reliably gives three pictures, and
-       only the last is shown. */
+    /* Distinct destinations while nothing is waiting, so a keyframe's three
+       pictures all survive; while flushed ones wait, only the main buffer. */
     for (k = 0; k < VIDEO_MAX_IMAGES; k++) dest[k] = g_dec;
+    if (g_keep[0] && !g_npend)
+        for (k = 0; k < KEEP_N; k++) dest[k + 1] = g_keep[k];
 
     /* The engine does not snoop the CPU's cache. */
     gfx_wrote_pixels();
@@ -151,7 +189,25 @@ int decode_sample(const unsigned char *data, unsigned len, decode_picture *out) 
         snprintf(g_err, sizeof(g_err), "%s", g_v.err);
         return -1;
     }
-    if (pics == 0) return 0;
+    if (pics == 0) {
+        /* The engine filling again: show what the keyframe flushed, in order. */
+        if (!g_npend) return 0;
+        g_cur = g_pend[0];
+        memmove(g_pend, g_pend + 1, (unsigned)(g_npend - 1) * sizeof(g_pend[0]));
+        g_npend--;
+    } else if (g_npend) {
+        /* Not the pattern above: show the newest, as before, and drop the rest. */
+        g_npend = 0;
+        g_cur   = g_dec;
+    } else {
+        /* Oldest first: show it, keep the others for the empty calls. */
+        g_cur = dest[0];
+        for (k = 1; k < pics && k <= KEEP_N; k++) g_pend[g_npend++] = dest[k];
+        if (pics > 1 && g_kept_logs < 4) {
+            g_kept_logs++;
+            log_printf("decode: a keyframe gave %d pictures, %d kept for the next calls", pics, g_npend);
+        }
+    }
 
     out->w = g_w;
     out->h = g_h;
@@ -174,7 +230,7 @@ void decode_blit(int x, int y) {
     if (x > 0) gfx_fill(0, y, x, g_h, 0);
     if (x + g_w < GFX_W) gfx_fill(x + g_w, y, GFX_W - (x + g_w), g_h, 0);
 
-    gfx_copy8888(g_dec, VIDEO_STRIDE, 0, 0, g_disp_u[g_next], SURF_STRIDE, x, y, g_w, g_h);
+    gfx_copy8888(g_cur ? g_cur : g_dec, VIDEO_STRIDE, 0, 0, g_disp_u[g_next], SURF_STRIDE, x, y, g_w, g_h);
 }
 
 void decode_show(void) {
