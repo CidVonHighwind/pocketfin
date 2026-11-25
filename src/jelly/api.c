@@ -25,10 +25,18 @@ static platform_lock *g_lock;
    refused token may be replaced by signing in again. A session from the login
    page has no password kept, so its end is the viewer's to know about. */
 static int            g_can_resign;
+static char           g_reason[96];
 
 static platform_lock *lock(void) {
     if (!g_lock) g_lock = platform_lock_new("jellyfin");
     return g_lock;
+}
+
+const char *jf_last_reason(void) { return g_reason; }
+
+static void note_reason(http_result rc, const http_resp *r) {
+    if (rc == HTTP_OK) return;
+    snprintf(g_reason, sizeof(g_reason), "%s", r->err[0] ? r->err : http_result_text(rc));
 }
 
 const char *jf_err_text(jf_err e) {
@@ -270,6 +278,7 @@ static jf_err sign_in(void) {
     memset(body, 0, sizeof(body));
 
     if (rc != HTTP_OK) {
+        note_reason(rc, &r);
         log_printf("jellyfin: sign in -- %s%s%s", http_result_text(rc), r.err[0] ? ", " : "", r.err);
         return err_from_result(rc, r.status);
     }
@@ -453,6 +462,7 @@ static jf_err anonymous(const char *method, const char *path, const char *body, 
     auth_header("", hdr, sizeof(hdr));
     rc = http_request(g_conn.host, g_conn.port, method, path, hdr, body, reply, cap, r);
     if (rc != HTTP_OK) {
+        note_reason(rc, r);
         log_printf("jellyfin: %s -- %s%s%s", path, http_result_text(rc), r->err[0] ? ", " : "", r->err);
         return err_from_result(rc, r->status);
     }
@@ -567,6 +577,7 @@ static jf_err exchange(jf_buf *b, const char *method, const char *path, const ch
         b->cost = r->cost;
 
         if (rc != HTTP_OK) {
+            note_reason(rc, r);
             log_printf("jellyfin: %s -- %s%s%s", path, http_result_text(rc), r->err[0] ? ", " : "", r->err);
             return err_from_result(rc, r->status);
         }

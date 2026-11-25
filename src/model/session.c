@@ -158,6 +158,11 @@ void session_connect(void) {
         char why[SESSION_ERR_MAX];
 
         session_sign_in_text(e, session_address(), why, sizeof(why));
+        if (e == JF_ERR_OFFLINE && jf_last_reason()[0]) {
+            unsigned used = (unsigned)strlen(why);
+
+            snprintf(why + used, sizeof(why) - used, " (%s)", jf_last_reason());
+        }
         session_note_stopped(why);
         return;
     }

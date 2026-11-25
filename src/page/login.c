@@ -220,7 +220,12 @@ static void frame(ui_frame *ui, void *st) {
             screen_reset(&boot_page_screen);
             return;
         }
-        snprintf(s->status, sizeof(s->status), "%s", failure(g_job.result, quick));
+        /* "Nothing answered" alone cannot tell a name that does not resolve
+           from a firewall or a certificate: say what the transport said. */
+        if (g_job.result == JF_ERR_OFFLINE && jf_last_reason()[0])
+            snprintf(s->status, sizeof(s->status), "%.90s", jf_last_reason());
+        else
+            snprintf(s->status, sizeof(s->status), "%s", failure(g_job.result, quick));
     }
 
     if (has && (int)id < LOGIN_ROW_N) focus_row = (int)id;

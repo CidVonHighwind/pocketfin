@@ -34,6 +34,11 @@ typedef enum {
 
 const char *jf_err_text(jf_err e);
 
+/* What the transport said about the last request that failed to reach the
+   server ("x does not resolve", "x:443 would not connect", a TLS reason), or
+   "" -- for a page that has to say more than "did not answer". */
+const char *jf_last_reason(void);
+
 /* Never shared between threads. */
 typedef struct {
     char     *p;
